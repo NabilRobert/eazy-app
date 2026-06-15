@@ -1,0 +1,149 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email             String   @unique
+  passwordHash      String
+  createdAt         DateTime @default(now())
+
+  candidateProfile  CandidateProfile?
+  jobs              Job[]
+  reviewQueue       ReviewQueue[]
+  dailyQuota        DailyQuota[]
+
+  @@map("users")
+}
+
+model CandidateProfile {
+  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId                String   @unique @db.Uuid
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Identity & Contact
+  fullName              String?
+  phone                 String?
+  location              String?
+
+  // LinkedIn Credentials
+  linkedinEmail         String?
+  sessionCookieEnc      String?  // AES-256 encrypted
+  linkedinAuthStatus    String   @default("expired") // 'pending_2fa' | 'authenticated' | 'expired'
+
+  // Resume
+  resumeUrl             String?
+
+  // Professional Profile
+  yearsExperience       Int?
+  education             String?
+  skills                Json     @default("[]") // array of strings
+
+  // Job Targeting
+  desiredPosition       String?
+  preferredLocation     String?
+  employmentType        String?
+  minSalary             Int?
+  jobSort               String   @default("recent") // 'recent' | 'relevant'
+
+  // Filters / Behaviour
+  strictExperience      Boolean  @default(false)
+  strictDegree          Boolean  @default(false)
+
+  // Pre-filled Easy Apply Answers
+  prefilledAnswers      Json     @default("{}")
+
+  // Automation Settings
+  triggerType           String   @default("manual") // 'manual' | 'scheduled'
+  scheduledTime         String?  // e.g. '09:00'
+
+  updatedAt             DateTime @updatedAt
+
+  @@map("candidate_profile")
+}
+
+model Job {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId            String   @db.Uuid
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  companyId         String?  @db.Uuid
+  company           CompanyCache? @relation(fields: [companyId], references: [id])
+
+  linkedinJobId     String   // used for duplicate detection
+  title             String?
+  company           String?
+  location          String?
+  employmentType    String?
+  postedDate        String?
+
+  appliedAt         DateTime @default(now())
+  status            String   @default("applied") // 'applied' | 'interview' | 'offer' | 'rejected' | 'withdrawn'
+
+  salaryMin         Int?
+  salaryMax         Int?
+  salarySource      String?  // 'structured' | 'ai_parsed' | 'not_disclosed'
+
+  description       String?  @db.Text
+  jobUrl            String?
+
+  needsReview       Boolean  @default(false)
+  createdAt         DateTime @default(now())
+
+  reviewQueue       ReviewQueue[]
+
+  @@unique([userId, linkedinJobId])
+  @@map("jobs")
+}
+
+model CompanyCache {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name              String   @unique
+  summary           String?  @db.Text
+  cachedAt          DateTime @default(now())
+
+  jobs              Job[]
+
+  @@map("company_cache")
+}
+
+model ReviewQueue {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId            String   @db.Uuid
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  jobId             String   @db.Uuid
+  job               Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  reason            String   // e.g. 'relocation_question' | 'custom_screening'
+  status            String   @default("pending") // 'pending' | 'confirmed' | 'skipped'
+
+  createdAt         DateTime @default(now())
+  resolvedAt        DateTime?
+
+  @@map("review_queue")
+}
+
+model DailyQuota {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId            String   @db.Uuid
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  date              DateTime @db.Date
+  autoApplied       Int      @default(0)
+  confirmedApplied  Int      @default(0)
+  totalApplied      Int      @default(0)
+  stopFlag          Boolean  @default(false)
+  resetAt           DateTime?
+
+  @@unique([userId, date])
+  @@map("daily_quota")
+}
