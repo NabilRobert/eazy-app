@@ -11,7 +11,8 @@
     "postinstall": "nuxt prepare",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:studio": "prisma studio"
+    "prisma:studio": "prisma studio",
+    "test:ai": "node scripts/test-ai.mjs"
   },
   "dependencies": {
     "nuxt": "^3.11.0",
