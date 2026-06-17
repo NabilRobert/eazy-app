@@ -30,6 +30,32 @@ export interface SerializedCookie {
   sameSite: 'Strict' | 'Lax' | 'None'
 }
 
+/** Inputs for a LinkedIn job search, derived from the candidate profile. */
+export interface JobSearchFilters {
+  /** Title / role keywords, e.g. "Frontend Developer". */
+  keywords: string
+  /** Preferred job location (may differ from the user's actual location). */
+  location?: string
+  /** full-time | part-time | contract | temporary | internship | remote. */
+  employmentType?: string
+  /** Result ordering: most recent vs most relevant. */
+  sort?: 'recent' | 'relevant'
+  /** Max number of listings to collect (defaults to 25). */
+  limit?: number
+}
+
+/**
+ * A job as seen in the search results list. Description/salary are not
+ * available here — they are fetched later when the Easy Apply view is opened.
+ */
+export interface SearchedJob {
+  linkedinJobId: string
+  title: string
+  company: string
+  location: string
+  jobUrl: string
+}
+
 /**
  * Service for LinkedIn automation via Playwright + Steel.dev
  */
@@ -267,15 +293,153 @@ export class LinkedinService {
   }
 
   /**
-   * Search for jobs based on filters
+   * Map a human employment type to LinkedIn's f_JT job-type code.
+   * Returns null for "remote" (handled separately via f_WT) or unknowns.
    */
-  async searchJobs(_filters: any): Promise<any[]> {
-    // TODO: Implement job search:
-    // 1. Navigate to LinkedIn jobs search
-    // 2. Apply filters (title, location, job type, etc.)
-    // 3. Extract job listings
-    // 4. Return array of jobs
-    return []
+  private static employmentTypeCode(type?: string): string | null {
+    if (!type) return null
+    switch (type.toLowerCase().replace(/[\s_-]/g, '')) {
+      case 'fulltime':
+        return 'F'
+      case 'parttime':
+        return 'P'
+      case 'contract':
+        return 'C'
+      case 'temporary':
+        return 'T'
+      case 'internship':
+        return 'I'
+      case 'volunteer':
+        return 'V'
+      default:
+        return null
+    }
+  }
+
+  /**
+   * Build a LinkedIn jobs search URL. Always constrains to Easy Apply
+   * (`f_AL=true`) since this bot only applies to Easy Apply postings.
+   */
+  private buildSearchUrl(filters: JobSearchFilters): string {
+    const params = new URLSearchParams()
+    params.set('keywords', filters.keywords)
+    if (filters.location) params.set('location', filters.location)
+    params.set('f_AL', 'true') // Easy Apply only
+    params.set('sortBy', filters.sort === 'relevant' ? 'R' : 'DD') // DD = date desc
+
+    const jt = LinkedinService.employmentTypeCode(filters.employmentType)
+    if (jt) params.set('f_JT', jt)
+    if (filters.employmentType?.toLowerCase().includes('remote')) params.set('f_WT', '2')
+
+    return `https://www.linkedin.com/jobs/search/?${params.toString()}`
+  }
+
+  /**
+   * Search LinkedIn for jobs matching the given filters and return the
+   * listing rows (id, title, company, location, url). Scrolls the results
+   * pane to lazy-load additional cards up to `limit`.
+   */
+  async searchJobs(filters: JobSearchFilters): Promise<SearchedJob[]> {
+    const limit = filters.limit ?? 25
+    try {
+      const page = await this.ensurePage()
+      const url = this.buildSearchUrl(filters)
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 })
+
+      // Wait for either the authenticated results list or the public list.
+      await page
+        .locator(
+          '.scaffold-layout__list, ul.jobs-search__results-list, .jobs-search-results-list, [data-results-list-top-scroll-sentinel]'
+        )
+        .first()
+        .waitFor({ state: 'visible', timeout: 20000 })
+        .catch(() => {})
+
+      // Lazy-load: LinkedIn appends cards as the results pane scrolls.
+      const collected = new Map<string, SearchedJob>()
+      let stagnantPasses = 0
+      for (let pass = 0; pass < 12 && collected.size < limit && stagnantPasses < 3; pass++) {
+        const batch = await this.extractJobCards(page)
+        const before = collected.size
+        for (const job of batch) {
+          if (!collected.has(job.linkedinJobId)) collected.set(job.linkedinJobId, job)
+        }
+        stagnantPasses = collected.size === before ? stagnantPasses + 1 : 0
+
+        // Scroll the list to trigger loading the next page of cards.
+        await page.evaluate(() => {
+          const list = document.querySelector(
+            '.scaffold-layout__list, ul.jobs-search__results-list, .jobs-search-results-list'
+          )
+          if (list) list.scrollBy(0, list.clientHeight)
+          else window.scrollBy(0, window.innerHeight)
+        })
+        await page.waitForTimeout(1200)
+      }
+
+      const jobs = Array.from(collected.values()).slice(0, limit)
+      console.log(`[LinkedIn] searchJobs collected ${jobs.length} listing(s) for "${filters.keywords}"`)
+      return jobs
+    } catch (err: any) {
+      console.error(`[LinkedIn] searchJobs failed: ${err.message}`)
+      return []
+    }
+  }
+
+  /**
+   * Extract the currently-rendered job cards from the search results DOM.
+   * Defensive against LinkedIn's varying authenticated/public markup.
+   */
+  private async extractJobCards(page: Page): Promise<SearchedJob[]> {
+    return page.evaluate(() => {
+      const out: Array<{ linkedinJobId: string; title: string; company: string; location: string; jobUrl: string }> = []
+      const seen = new Set<string>()
+
+      const cards = document.querySelectorAll(
+        'li[data-occludable-job-id], div.job-card-container, li.jobs-search-results__list-item, ul.jobs-search__results-list > li'
+      )
+
+      cards.forEach((card) => {
+        const link = card.querySelector<HTMLAnchorElement>(
+          'a.job-card-container__link, a.job-card-list__title, a.base-card__full-link, a[href*="/jobs/view/"]'
+        )
+        const href = link?.href || ''
+        const idAttr =
+          card.getAttribute('data-occludable-job-id') ||
+          card.getAttribute('data-job-id') ||
+          (href.match(/\/jobs\/view\/(\d+)/)?.[1] ?? '')
+        if (!idAttr || seen.has(idAttr)) return
+
+        const text = (sel: string) => {
+          const el = card.querySelector(sel)
+          return el?.textContent?.replace(/\s+/g, ' ').trim() || ''
+        }
+
+        const title =
+          link?.getAttribute('aria-label')?.trim() ||
+          text('.job-card-list__title') ||
+          text('.job-card-container__link') ||
+          text('.base-search-card__title') ||
+          text('strong') ||
+          (link?.textContent?.replace(/\s+/g, ' ').trim() ?? '')
+        const company =
+          text('.job-card-container__primary-description') ||
+          text('.artdeco-entity-lockup__subtitle') ||
+          text('.base-search-card__subtitle') ||
+          text('.job-card-container__company-name')
+        const location =
+          text('.job-card-container__metadata-item') ||
+          text('.artdeco-entity-lockup__caption') ||
+          text('.job-search-card__location')
+
+        const jobUrl = href ? href.split('?')[0] : `https://www.linkedin.com/jobs/view/${idAttr}/`
+
+        seen.add(idAttr)
+        out.push({ linkedinJobId: idAttr, title, company, location, jobUrl })
+      })
+
+      return out
+    })
   }
 
   /**
