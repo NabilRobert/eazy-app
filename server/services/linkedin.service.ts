@@ -1,4 +1,7 @@
-import { chromium } from 'playwright'
+import { chromium, type Browser } from 'playwright'
+import axios from 'axios'
+
+const STEEL_API_BASE = 'https://api.steel.dev'
 
 /**
  * Service for LinkedIn automation via Playwright + Steel.dev
@@ -6,35 +9,57 @@ import { chromium } from 'playwright'
 export class LinkedinService {
   private steelApiKey: string
   private browserUrl?: string
+  private sessionId?: string
 
   constructor(steelApiKey: string) {
     this.steelApiKey = steelApiKey
   }
 
-  /**
-   * Connect to Steel.dev cloud browser
-   */
   async createSession(): Promise<void> {
-    // TODO: Call Steel.dev API to create browser session
-    // Store browserUrl for Playwright CDP connection
+    try {
+      const response = await axios.post(
+        `${STEEL_API_BASE}/sessions`,
+        {},
+        { headers: { 'Steel-Api-Key': this.steelApiKey } }
+      )
+
+      const { id, websocket_url } = response.data
+
+      if (!websocket_url) {
+        throw new Error('Steel.dev did not return a WebSocket endpoint')
+      }
+
+      this.sessionId = id
+      this.browserUrl = websocket_url
+      console.log(`[Steel] Session created: ${this.sessionId}`)
+    } catch (err: any) {
+      const status = err.response?.status
+      const message = err.response?.data?.message ?? err.message
+
+      if (status === 401) throw new Error(`[Steel] Invalid API key: ${message}`)
+      if (status === 503) throw new Error(`[Steel] Service unavailable: ${message}`)
+      throw new Error(`[Steel] Failed to create session: ${message}`)
+    }
   }
 
-  /**
-   * Connect Playwright to remote Steel browser via CDP
-   */
-  async connectPlaywright() {
+  async connectPlaywright(): Promise<Browser> {
     if (!this.browserUrl) {
       throw new Error('Browser session not created. Call createSession first.')
     }
 
-    // TODO: Connect to this.browserUrl via cdpSession
-    // return browser instance
+    try {
+      const browser = await chromium.connectOverCDP(this.browserUrl)
+      console.log(`[Steel] Playwright connected via CDP: ${this.browserUrl}`)
+      return browser
+    } catch (err: any) {
+      throw new Error(`[Steel] CDP connection failed: ${err.message}`)
+    }
   }
 
   /**
    * Login to LinkedIn with email/password
    */
-  async login(email: string, password: string): Promise<any> {
+  async login(_email: string, _password: string): Promise<any> {
     // TODO: Implement login flow:
     // 1. Navigate to linkedin.com/login
     // 2. Fill email
@@ -47,7 +72,7 @@ export class LinkedinService {
   /**
    * Submit 2FA code
    */
-  async submit2FACode(code: string): Promise<any> {
+  async submit2FACode(_code: string): Promise<any> {
     // TODO: Fill and submit 2FA code
     // Return session cookies on success
   }
@@ -55,25 +80,26 @@ export class LinkedinService {
   /**
    * Search for jobs based on filters
    */
-  async searchJobs(filters: any): Promise<any[]> {
+  async searchJobs(_filters: any): Promise<any[]> {
     // TODO: Implement job search:
     // 1. Navigate to LinkedIn jobs search
     // 2. Apply filters (title, location, job type, etc.)
     // 3. Extract job listings
     // 4. Return array of jobs
+    return []
   }
 
   /**
    * Open Easy Apply form
    */
-  async openEasyApply(jobUrl: string): Promise<any> {
+  async openEasyApply(_jobUrl: string): Promise<any> {
     // TODO: Navigate to job and open Easy Apply modal
   }
 
   /**
    * Fill Easy Apply form with pre-filled answers
    */
-  async fillEasyApplyForm(answers: Record<string, string>): Promise<void> {
+  async fillEasyApplyForm(_answers: Record<string, string>): Promise<void> {
     // TODO: Fill form fields with provided answers
   }
 
@@ -83,6 +109,7 @@ export class LinkedinService {
   async submitEasyApply(): Promise<boolean> {
     // TODO: Click submit button
     // Return true on success
+    return false
   }
 
   /**
@@ -92,6 +119,7 @@ export class LinkedinService {
     // TODO: Check for relocation question
     // TODO: Check for custom open-ended questions
     // Return array of detected question types
+    return []
   }
 
   /**
@@ -106,7 +134,20 @@ export class LinkedinService {
    * Release Steel.dev session
    */
   async closeSession(): Promise<void> {
-    // TODO: Call Steel.dev API to release browser session
+    if (!this.sessionId) return
+
+    try {
+      await axios.delete(
+        `${STEEL_API_BASE}/sessions/${this.sessionId}`,
+        { headers: { 'Steel-Api-Key': this.steelApiKey } }
+      )
+      console.log(`[Steel] Session released: ${this.sessionId}`)
+    } catch (err: any) {
+      console.error(`[Steel] Failed to release session ${this.sessionId}: ${err.message}`)
+    } finally {
+      this.sessionId = undefined
+      this.browserUrl = undefined
+    }
   }
 }
 
