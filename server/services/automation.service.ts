@@ -71,9 +71,17 @@ export class AutomationService {
       throw new Error('Set a desired position in Settings before starting.')
     }
 
+    if (runningWorkers.has(this.userId)) {
+      throw new Error('Automation is already running.')
+    }
+
     this.stopFlag = false
     await QuotaService.setStopFlag(this.userId, false)
-    await this.run(profile)
+
+    // Mark running synchronously so a rapid second /start is rejected, then run
+    // the loop in the background; the route returns and the client polls /status.
+    runningWorkers.set(this.userId, 'starting')
+    void this.run(profile).catch((e) => console.error('[Automation] background loop error:', e?.message))
   }
 
   /** Signal the running loop to stop before its next job. */
