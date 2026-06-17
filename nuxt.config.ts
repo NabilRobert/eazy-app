@@ -14,7 +14,10 @@ export default defineNuxtConfig({
     // Private keys (server-only)
     database_url: process.env.DATABASE_URL,
     steel_api_key: process.env.STEEL_API_KEY,
-    openai_api_key: process.env.OPENAI_API_KEY,
+    // AI provider (Sumopod / any OpenAI-compatible endpoint)
+    ai_api_key: process.env.AI_API_KEY,
+    ai_base_url: process.env.AI_BASE_URL || 'https://ai.sumopod.com/v1',
+    ai_model: process.env.AI_MODEL || 'gpt-5.4-mini',
     tavily_api_key: process.env.TAVILY_API_KEY,
     supabase_url: process.env.SUPABASE_URL,
     supabase_service_key: process.env.SUPABASE_SERVICE_KEY,

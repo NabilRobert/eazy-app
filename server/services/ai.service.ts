@@ -2,17 +2,25 @@ import OpenAI from 'openai'
 import axios from 'axios'
 import prisma from '~/server/utils/prisma'
 
-const MODEL = 'gpt-4o-mini'
 const CACHE_DAYS = 30
 
-/** Lazily build the OpenAI client from runtime config (env-driven). */
+/**
+ * Lazily build the AI client from runtime config (env-driven). Points at any
+ * OpenAI-compatible endpoint — defaults to Sumopod (https://ai.sumopod.com/v1).
+ */
 let _openai: OpenAI | null = null
 function getOpenAI(): OpenAI {
   if (_openai) return _openai
-  const apiKey = useRuntimeConfig().openai_api_key
-  if (!apiKey) throw new Error('OPENAI_API_KEY is not configured')
-  _openai = new OpenAI({ apiKey })
+  const config = useRuntimeConfig()
+  const apiKey = config.ai_api_key
+  if (!apiKey) throw new Error('AI_API_KEY is not configured')
+  _openai = new OpenAI({ apiKey, baseURL: config.ai_base_url })
   return _openai
+}
+
+/** Configured model id (default gpt-5.4-mini). */
+function aiModel(): string {
+  return useRuntimeConfig().ai_model || 'gpt-5.4-mini'
 }
 
 /**
@@ -32,7 +40,7 @@ export class AIService {
 
     try {
       const resp = await getOpenAI().chat.completions.create({
-        model: MODEL,
+        model: aiModel(),
         max_tokens: 100,
         temperature: 0,
         response_format: { type: 'json_object' },
@@ -83,7 +91,7 @@ export class AIService {
       const research = await this.searchTavily(`${companyName} company overview`)
 
       const resp = await getOpenAI().chat.completions.create({
-        model: MODEL,
+        model: aiModel(),
         max_tokens: 200,
         temperature: 0.2,
         messages: [
