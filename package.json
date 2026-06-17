@@ -29,6 +29,6 @@
   "devDependencies": {
     "prisma": "^5.10.0",
     "typescript": "^5.3.0",
-    "@nuxt/devtools": "latest"
+    "@nuxt/devtools": "^1.6.0"
   }
 }
