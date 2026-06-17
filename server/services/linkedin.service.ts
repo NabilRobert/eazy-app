@@ -1,5 +1,6 @@
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright'
 import axios from 'axios'
+import { ScreeningService } from './screening.service'
 
 const STEEL_API_BASE = 'https://api.steel.dev'
 const LINKEDIN_LOGIN_URL = 'https://www.linkedin.com/login'
@@ -740,22 +741,83 @@ export class LinkedinService {
   }
 
   /**
-   * Submit Easy Apply form
+   * Submit the Easy Apply application from the review step. Clicks Submit,
+   * confirms the "application was sent" state, and dismisses the post-submit
+   * dialog. Returns true on confirmed success.
    */
   async submitEasyApply(): Promise<boolean> {
-    // TODO: Click submit button
-    // Return true on success
-    return false
+    try {
+      const page = this.page
+      if (!page || page.isClosed()) return false
+
+      const modal = page.locator('div[role="dialog"], .jobs-easy-apply-modal').first()
+      const submitBtn = modal.locator('button[aria-label*="Submit application" i]').first()
+      if (!(await submitBtn.count())) {
+        console.warn('[LinkedIn] submitEasyApply: no Submit button on current step')
+        return false
+      }
+
+      await submitBtn.click({ timeout: 10000 })
+      await page.waitForTimeout(2000)
+
+      // Success signal: a confirmation dialog, or the apply modal is gone.
+      const confirmation = page.locator(
+        ':text("application was sent"), :text("Your application was sent"), :text("Application sent")'
+      )
+      const ok = (await confirmation.count()) > 0 || (await modal.count()) === 0
+
+      // Dismiss the post-submit dialog (Done / close button) if present.
+      const done = page
+        .locator('button[aria-label="Dismiss" i], button[aria-label="Done" i], button:has-text("Done")')
+        .first()
+      if (await done.count()) await done.click({ timeout: 5000 }).catch(() => {})
+      await page.waitForTimeout(500)
+
+      if (ok) console.log('[LinkedIn] Application submitted successfully')
+      else console.warn('[LinkedIn] submitEasyApply: no confirmation detected')
+      return ok
+    } catch (err: any) {
+      console.error(`[LinkedIn] submitEasyApply failed: ${err.message}`)
+      return false
+    }
   }
 
   /**
-   * Detect screening questions
+   * Inspect the open Easy Apply modal for questions that require user review.
+   * Returns review-queue reason codes (e.g. 'relocation_question',
+   * 'custom_screening'). Pass the candidate's prefilled answers so standard,
+   * auto-answerable questions are not mistaken for custom screening.
    */
-  async detectScreeningQuestions(): Promise<string[]> {
-    // TODO: Check for relocation question
-    // TODO: Check for custom open-ended questions
-    // Return array of detected question types
-    return []
+  async detectScreeningQuestions(prefilledAnswers: Record<string, string> = {}): Promise<string[]> {
+    try {
+      const page = this.page
+      if (!page || page.isClosed()) return []
+      const modal = page.locator('div[role="dialog"], .jobs-easy-apply-modal').first()
+      if (!(await modal.count())) return []
+
+      const labels = await this.collectModalLabels(modal)
+      const { reasons } = ScreeningService.classifyScreening(labels, prefilledAnswers)
+      if (reasons.length) console.log(`[LinkedIn] Screening flags: ${reasons.join(', ')}`)
+      return reasons
+    } catch (err: any) {
+      console.error(`[LinkedIn] detectScreeningQuestions failed: ${err.message}`)
+      return []
+    }
+  }
+
+  /** Collect all question label/legend texts from the open modal step. */
+  private async collectModalLabels(modal: ReturnType<Page['locator']>): Promise<string[]> {
+    return modal.evaluate((root: Element) => {
+      const els = root.querySelectorAll(
+        'label, legend, .fb-dash-form-element__label, .jobs-easy-apply-form-element__label'
+      )
+      const set = new Set<string>()
+      els.forEach((e) => {
+        const t = e.textContent?.replace(/\s+/g, ' ').trim()
+        if (t) set.add(t)
+      })
+      return Array.from(set)
+    })
   }
 
   /**
