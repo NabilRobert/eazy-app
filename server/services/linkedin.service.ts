@@ -218,6 +218,30 @@ export class LinkedinService {
     return 'error'
   }
 
+  /**
+   * Restore a saved LinkedIn session: connect, inject the stored cookies, and
+   * navigate to the feed to confirm the session is still valid. Returns false
+   * if LinkedIn bounces to the login page (session expired).
+   */
+  async loadSession(cookies: SerializedCookie[]): Promise<boolean> {
+    try {
+      const page = await this.ensurePage()
+      if (cookies?.length && this.context) {
+        await this.context.addCookies(cookies)
+      }
+      await page.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 30000 })
+      await page.waitForTimeout(1500)
+
+      const state = await this.detectAuthState()
+      const ok = state === 'authenticated'
+      if (!ok) console.warn('[LinkedIn] Restored session is not authenticated (expired)')
+      return ok
+    } catch (err: any) {
+      console.error(`[LinkedIn] loadSession failed: ${err.message}`)
+      return false
+    }
+  }
+
   /** Read any visible login error message LinkedIn surfaces. */
   private async readLoginError(): Promise<string | undefined> {
     const page = this.page!
@@ -779,6 +803,29 @@ export class LinkedinService {
     } catch (err: any) {
       console.error(`[LinkedIn] submitEasyApply failed: ${err.message}`)
       return false
+    }
+  }
+
+  /**
+   * Close an in-progress Easy Apply modal, confirming the discard prompt if
+   * LinkedIn shows one. Used when a job is skipped or flagged for review.
+   */
+  async closeApplyModal(): Promise<void> {
+    try {
+      const page = this.page
+      if (!page || page.isClosed()) return
+
+      const dismiss = page.locator('button[aria-label="Dismiss" i]').first()
+      if (await dismiss.count()) await dismiss.click({ timeout: 5000 }).catch(() => {})
+      await page.waitForTimeout(400)
+
+      const discard = page
+        .locator('button[data-control-name="discard_application_confirm_btn"], button:has-text("Discard")')
+        .first()
+      if (await discard.count()) await discard.click({ timeout: 5000 }).catch(() => {})
+      await page.waitForTimeout(300)
+    } catch {
+      /* best-effort */
     }
   }
 
