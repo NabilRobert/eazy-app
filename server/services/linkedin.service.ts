@@ -57,6 +57,42 @@ export interface SearchedJob {
 }
 
 /**
+ * Full detail scraped from a single job posting (used for storage + AI
+ * enrichment). Salary fields are populated only when LinkedIn shows a
+ * structured compensation value; otherwise they stay null for AI parsing.
+ */
+export interface JobDetail {
+  linkedinJobId: string
+  title: string
+  company: string
+  location: string
+  employmentType: string
+  postedDate: string
+  description: string
+  salaryMin: number | null
+  salaryMax: number | null
+  jobUrl: string
+}
+
+/** Result of opening the Easy Apply modal for a job. */
+export interface OpenApplyResult {
+  opened: boolean
+  detail: JobDetail | null
+  message?: string
+}
+
+/** Result of filling (but not submitting) the Easy Apply form. */
+export interface FillResult {
+  /** ready_to_submit: advanced to the review/submit step with no gaps. */
+  status: 'ready_to_submit' | 'incomplete' | 'error'
+  /** Labels of fields we could not confidently fill — feed to screening. */
+  unfilledFields: string[]
+  /** Number of modal "Next/Review" steps advanced. */
+  stepsAdvanced: number
+  message?: string
+}
+
+/**
  * Service for LinkedIn automation via Playwright + Steel.dev
  */
 export class LinkedinService {
@@ -443,17 +479,264 @@ export class LinkedinService {
   }
 
   /**
-   * Open Easy Apply form
+   * Navigate to a job posting, scrape its detail, and open the Easy Apply
+   * modal. Returns the scraped detail plus whether the modal opened (some
+   * postings route to an external site and have no Easy Apply button).
    */
-  async openEasyApply(_jobUrl: string): Promise<any> {
-    // TODO: Navigate to job and open Easy Apply modal
+  async openEasyApply(jobUrl: string): Promise<OpenApplyResult> {
+    try {
+      const page = await this.ensurePage()
+      await page.goto(jobUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
+      await page.waitForTimeout(1500)
+
+      const detail = await this.extractJobDetail(page, jobUrl)
+
+      const applyBtn = page
+        .locator('button.jobs-apply-button, button[aria-label*="Easy Apply" i]')
+        .first()
+      if (!(await applyBtn.count())) {
+        return { opened: false, detail, message: 'No Easy Apply button (likely external apply).' }
+      }
+      await applyBtn.click({ timeout: 10000 }).catch(() => {})
+
+      const modal = page.locator('div[role="dialog"], .jobs-easy-apply-modal').first()
+      await modal.waitFor({ state: 'visible', timeout: 15000 }).catch(() => {})
+      const opened = (await modal.count()) > 0
+      return { opened, detail, message: opened ? undefined : 'Easy Apply modal did not open.' }
+    } catch (err: any) {
+      console.error(`[LinkedIn] openEasyApply failed: ${err.message}`)
+      return { opened: false, detail: null, message: err.message }
+    }
+  }
+
+  /** Scrape title/company/location/description/type/date/salary from a job page. */
+  private async extractJobDetail(page: Page, jobUrl: string): Promise<JobDetail> {
+    const idMatch = jobUrl.match(/\/jobs\/view\/(\d+)/)
+    const linkedinJobId = idMatch?.[1] ?? ''
+
+    const raw = await page.evaluate(() => {
+      const t = (sel: string) => {
+        const el = document.querySelector(sel)
+        return el?.textContent?.replace(/\s+/g, ' ').trim() || ''
+      }
+      const title =
+        t('.job-details-jobs-unified-top-card__job-title') ||
+        t('.jobs-unified-top-card__job-title') ||
+        t('h1')
+      const company =
+        t('.job-details-jobs-unified-top-card__company-name') ||
+        t('.jobs-unified-top-card__company-name') ||
+        t('.jobs-unified-top-card__primary-description a')
+      const primary =
+        t('.job-details-jobs-unified-top-card__primary-description-container') ||
+        t('.jobs-unified-top-card__primary-description') ||
+        t('.jobs-unified-top-card__subtitle-primary-grouping')
+      const description =
+        t('#job-details') ||
+        t('.jobs-description__content') ||
+        t('.jobs-box__html-content') ||
+        t('.show-more-less-html__markup')
+      // Insight chips usually hold employment type + salary if present.
+      const insights = Array.from(
+        document.querySelectorAll(
+          '.job-details-jobs-unified-top-card__job-insight, .jobs-unified-top-card__job-insight, li.job-details-jobs-unified-top-card__job-insight span'
+        )
+      )
+        .map((el) => el.textContent?.replace(/\s+/g, ' ').trim() || '')
+        .filter(Boolean)
+      return { title, company, primary, description, insights }
+    })
+
+    // Employment type from insight chips.
+    const typeRe = /(full-?time|part-?time|contract|temporary|internship|volunteer)/i
+    const employmentType =
+      raw.insights.map((s: string) => s.match(typeRe)?.[0]).find(Boolean)?.toString() ?? ''
+
+    // Posted date: pull a "x days/weeks ago"-style phrase from the header.
+    const postedDate = raw.primary.match(/(\d+\s+(?:minute|hour|day|week|month)s?\s+ago|just now)/i)?.[0] ?? ''
+
+    // Structured salary: only if an insight chip shows a currency range.
+    const salaryChip = raw.insights.find((s: string) => /[$€£₹]|\bIDR\b|\bRp\b|\/(yr|hr|month)/i.test(s)) ?? ''
+    const nums = salaryChip.match(/[\d.,]+\s*[KkMm]?/g)?.map((n) => this.parseMoney(n)) ?? []
+    const salaryMin = nums.length ? Math.min(...nums) : null
+    const salaryMax = nums.length ? Math.max(...nums) : null
+
+    const location = raw.primary.split('·')[0]?.trim() || ''
+
+    return {
+      linkedinJobId,
+      title: raw.title,
+      company: raw.company,
+      location,
+      employmentType,
+      postedDate,
+      description: raw.description,
+      salaryMin,
+      salaryMax,
+      jobUrl
+    }
+  }
+
+  /** Parse a money token like "120,000", "$95K", "1.2M" into a number. */
+  private parseMoney(token: string): number {
+    const cleaned = token.replace(/[^0-9.kKmM]/g, '')
+    const mult = /[kK]/.test(cleaned) ? 1_000 : /[mM]/.test(cleaned) ? 1_000_000 : 1
+    return Math.round(parseFloat(cleaned.replace(/[kKmM]/g, '')) * mult)
   }
 
   /**
-   * Fill Easy Apply form with pre-filled answers
+   * Fill the Easy Apply form across its multi-step modal using `answers`
+   * (a normalized question/label -> value map built from the candidate
+   * profile + prefilled answers). Advances Next/Review until the Submit
+   * step is reached, but does NOT submit (that is Step #6). Returns any
+   * labels left unfilled so screening detection can flag them.
    */
-  async fillEasyApplyForm(_answers: Record<string, string>): Promise<void> {
-    // TODO: Fill form fields with provided answers
+  async fillEasyApplyForm(answers: Record<string, string>): Promise<FillResult> {
+    try {
+      const page = this.page
+      if (!page || page.isClosed()) {
+        return { status: 'error', unfilledFields: [], stepsAdvanced: 0, message: 'No active page.' }
+      }
+      const modal = page.locator('div[role="dialog"], .jobs-easy-apply-modal').first()
+      if (!(await modal.count())) {
+        return { status: 'error', unfilledFields: [], stepsAdvanced: 0, message: 'Easy Apply modal not open.' }
+      }
+
+      const unfilled = new Set<string>()
+      let stepsAdvanced = 0
+
+      for (let step = 0; step < 12; step++) {
+        const missed = await this.fillCurrentStep(modal, answers)
+        missed.forEach((m) => unfilled.add(m))
+
+        // Submit available => we're on the review step; stop here for Step #6.
+        const submitBtn = modal.locator('button[aria-label*="Submit application" i]')
+        if (await submitBtn.count()) {
+          return { status: 'ready_to_submit', unfilledFields: [...unfilled], stepsAdvanced }
+        }
+
+        const nextBtn = modal
+          .locator('button[aria-label*="Continue to next step" i], button[aria-label*="Review" i], button[aria-label*="Next" i]')
+          .first()
+        if (!(await nextBtn.count())) break
+
+        await nextBtn.click({ timeout: 10000 }).catch(() => {})
+        await page.waitForTimeout(900)
+        stepsAdvanced++
+      }
+
+      return {
+        status: unfilled.size ? 'incomplete' : 'ready_to_submit',
+        unfilledFields: [...unfilled],
+        stepsAdvanced
+      }
+    } catch (err: any) {
+      console.error(`[LinkedIn] fillEasyApplyForm failed: ${err.message}`)
+      return { status: 'error', unfilledFields: [], stepsAdvanced: 0, message: err.message }
+    }
+  }
+
+  /**
+   * Fill every form group in the currently-visible modal step. Returns the
+   * labels of fields that had no matching answer (potential screening items).
+   */
+  private async fillCurrentStep(
+    modal: ReturnType<Page['locator']>,
+    answers: Record<string, string>
+  ): Promise<string[]> {
+    const missed: string[] = []
+    const groups = modal.locator('.fb-dash-form-element, .jobs-easy-apply-form-section__grouping, fieldset[data-test-form-builder-radio-button-form-component]')
+    const count = await groups.count()
+
+    for (let i = 0; i < count; i++) {
+      const group = groups.nth(i)
+      const label = (
+        (await group.locator('label, legend').first().textContent().catch(() => '')) ?? ''
+      )
+        .replace(/\s+/g, ' ')
+        .trim()
+      if (!label) continue
+
+      const value = this.matchAnswer(label, answers)
+
+      // Select dropdown.
+      const select = group.locator('select')
+      if (await select.count()) {
+        if (value) {
+          await select.selectOption({ label: value }).catch(async () => {
+            await select.selectOption(value).catch(() => missed.push(label))
+          })
+        } else {
+          missed.push(label)
+        }
+        continue
+      }
+
+      // Radio group (e.g. Yes/No screening, work authorization).
+      const radios = group.locator('input[type="radio"]')
+      if (await radios.count()) {
+        if (value) {
+          const choice = group.locator(`label:has-text("${value}")`).first()
+          if (await choice.count()) await choice.click().catch(() => missed.push(label))
+          else missed.push(label)
+        } else {
+          missed.push(label)
+        }
+        continue
+      }
+
+      // Textarea.
+      const textarea = group.locator('textarea')
+      if (await textarea.count()) {
+        if (value) await textarea.fill(value).catch(() => missed.push(label))
+        else missed.push(label)
+        continue
+      }
+
+      // Plain text/email/tel input.
+      const input = group.locator('input[type="text"], input[type="email"], input[type="tel"], input:not([type])')
+      if (await input.count()) {
+        if (value) await input.first().fill(value).catch(() => missed.push(label))
+        else missed.push(label)
+        continue
+      }
+    }
+
+    return missed
+  }
+
+  /**
+   * Match a form label to a value. Tries direct/substring matches against
+   * the answer map plus a few standard contact synonyms.
+   */
+  private matchAnswer(label: string, answers: Record<string, string>): string | undefined {
+    const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
+    const nLabel = norm(label)
+
+    for (const [key, val] of Object.entries(answers)) {
+      const nKey = norm(key)
+      if (!nKey || !val) continue
+      if (nLabel === nKey || nLabel.includes(nKey) || nKey.includes(nLabel)) return val
+    }
+
+    // Common contact-field synonyms, sourced from standard answer keys.
+    const synonyms: Record<string, string[]> = {
+      fullname: ['name', 'fullname', 'firstandlastname'],
+      email: ['email', 'emailaddress'],
+      phone: ['phone', 'mobile', 'phonenumber', 'mobilephonenumber'],
+      location: ['city', 'location'],
+      expectedsalary: ['expectedsalary', 'salaryexpectation', 'desiredsalary'],
+      currentsalary: ['currentsalary', 'presentsalary'],
+      noticeperiod: ['noticeperiod', 'noticedays']
+    }
+    for (const [answerKey, labels] of Object.entries(synonyms)) {
+      if (labels.some((l) => nLabel.includes(l))) {
+        const hit = Object.entries(answers).find(([k]) => norm(k) === answerKey || labels.includes(norm(k)))
+        if (hit?.[1]) return hit[1]
+      }
+    }
+
+    return undefined
   }
 
   /**
