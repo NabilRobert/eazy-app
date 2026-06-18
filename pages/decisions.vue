@@ -127,95 +127,18 @@
 </template>
 
 <script setup lang="ts">
-interface Criterion {
-  name: string
-  verdict: 'pass' | 'partial' | 'fail'
-  weight: number
-  note: string
-}
-interface Decision {
-  id: string
-  jobTitle: string | null
-  company: string | null
-  jobUrl: string | null
-  decision: 'apply' | 'review' | 'skip'
-  score: number | null
-  criteria: Criterion[] | unknown
-  rationale: string | null
-  model: string | null
-  promptVersion: string | null
-  createdAt: string
-}
-
-const filters = [
-  { label: 'All', value: 'all' },
-  { label: 'Applied', value: 'apply' },
-  { label: 'Review', value: 'review' },
-  { label: 'Skipped', value: 'skip' }
-]
-
-const decisions = ref<Decision[]>([])
-const selected = ref<Decision | null>(null)
-const activeFilter = ref<string>('all')
-const loading = ref(true)
-
-async function load() {
-  loading.value = true
-  try {
-    const q = activeFilter.value === 'all' ? '' : `?decision=${activeFilter.value}`
-    const res = await $fetch<{ success: boolean; data: Decision[] }>(`/api/decisions${q}`)
-    decisions.value = res.data || []
-    selected.value = decisions.value[0] || null
-  } catch (e) {
-    console.error('Failed to load decisions:', e)
-    decisions.value = []
-  } finally {
-    loading.value = false
-  }
-}
-
-function setFilter(v: string) {
-  activeFilter.value = v
-  load()
-}
-
-function criteriaOf(d: Decision): Criterion[] {
-  const c = d.criteria
-  if (Array.isArray(c)) return c as Criterion[]
-  try {
-    return typeof c === 'string' ? (JSON.parse(c) as Criterion[]) : []
-  } catch {
-    return []
-  }
-}
-
-function scorePct(score: number | null): string {
-  return `${Math.round((score || 0) * 100)}%`
-}
-function borderClass(decision: string): string {
-  return decision === 'apply' ? 'border-green-500' : decision === 'review' ? 'border-yellow-400' : 'border-gray-300'
-}
-function badgeClass(decision: string): string {
-  return decision === 'apply'
-    ? 'bg-green-100 text-green-800'
-    : decision === 'review'
-      ? 'bg-yellow-100 text-yellow-800'
-      : 'bg-gray-100 text-gray-700'
-}
-function verdictClass(verdict: string): string {
-  return verdict === 'pass'
-    ? 'bg-green-100 text-green-800'
-    : verdict === 'fail'
-      ? 'bg-red-100 text-red-800'
-      : 'bg-yellow-100 text-yellow-800'
-}
-function formatDate(d: string): string {
-  try {
-    return new Date(d).toLocaleString()
-  } catch {
-    return d
-  }
-}
-
-onMounted(load)
+const {
+  filters,
+  decisions,
+  selected,
+  activeFilter,
+  loading,
+  setFilter,
+  criteriaOf,
+  scorePct,
+  borderClass,
+  badgeClass,
+  verdictClass,
+  formatDate
+} = useDecisions()
 </script>
