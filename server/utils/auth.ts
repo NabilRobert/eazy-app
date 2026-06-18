@@ -1,51 +1,19 @@
-import prisma from './prisma'
-
-export async function getUserFromSession(userId: string) {
-  if (!userId) {
-    return null
-  }
-
-  try {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      include: { candidateProfile: true }
-    })
-    return user
-  } catch {
-    return null
-  }
+/**
+ * Auth helper built on nuxt-auth-utils sealed sessions.
+ *
+ * The module auto-imports setUserSession / getUserSession / requireUserSession
+ * / clearUserSession into the server context, so we don't redefine those here
+ * (doing so would collide with the auto-imports). `requireAuth` is a thin
+ * wrapper that returns the authenticated user object so routes can use
+ * `const user = await requireAuth(event); user.id`.
+ */
+export interface SessionUser {
+  id: string
+  email: string
 }
 
-export async function requireAuth(event: any) {
-  const user = await requireUserSession(event)
-  if (!user) {
-    throw createError({
-      statusCode: 401,
-      statusMessage: 'Unauthorized'
-    })
-  }
-  return user
-}
-
-export function requireUserSession(event: any) {
-  return getUserSession(event)
-}
-
-export async function getUserSession(event: any) {
-  const { getHeader } = event.node.req
-  const authorization = getHeader('authorization')
-
-  if (!authorization) {
-    return null
-  }
-
-  const token = authorization.replace('Bearer ', '')
-
-  try {
-    // Decode JWT or verify session token here
-    // For now, a simple placeholder - implement based on your auth strategy
-    return { id: token }
-  } catch {
-    return null
-  }
+/** Require an authenticated session; throws 401 otherwise. Returns the user. */
+export async function requireAuth(event: any): Promise<SessionUser> {
+  const session = await requireUserSession(event)
+  return session.user as SessionUser
 }
