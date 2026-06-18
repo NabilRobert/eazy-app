@@ -58,30 +58,5 @@
 </template>
 
 <script setup lang="ts">
-const { fetch: refreshSession } = useUserSession()
-
-const mode = ref<'login' | 'register'>('login')
-const form = reactive({ email: '', password: '' })
-const loading = ref(false)
-const error = ref('')
-
-function toggleMode() {
-  mode.value = mode.value === 'login' ? 'register' : 'login'
-  error.value = ''
-}
-
-async function handleSubmit() {
-  loading.value = true
-  error.value = ''
-  try {
-    const url = mode.value === 'login' ? '/api/auth/login' : '/api/auth/register'
-    await $fetch(url, { method: 'POST', body: { email: form.email, password: form.password } })
-    await refreshSession()
-    await navigateTo('/dashboard')
-  } catch (err: any) {
-    error.value = err.data?.statusMessage || err.data?.message || 'Something went wrong'
-  } finally {
-    loading.value = false
-  }
-}
+const { mode, form, loading, error, toggleMode, handleSubmit } = useLogin()
 </script>
