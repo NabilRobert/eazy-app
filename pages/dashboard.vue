@@ -15,6 +15,9 @@
             <NuxtLink to="/settings" class="px-4 py-2 bg-gray-100 text-gray-800 rounded-lg hover:bg-gray-200">
               Settings
             </NuxtLink>
+            <button @click="logout" class="px-4 py-2 bg-gray-100 text-gray-800 rounded-lg hover:bg-gray-200">
+              Log out
+            </button>
           </div>
         </div>
       </div>
@@ -47,6 +50,7 @@
             </button>
           </div>
         </div>
+        <p v-if="error" class="text-red-600 text-sm mt-3">{{ error }}</p>
       </div>
 
       <!-- Quota Bar -->
@@ -136,13 +140,18 @@ interface Job {
   location: string
   status: string
   salaryMin?: number
+  jobUrl?: string
 }
+
+const { clear: clearSession } = useUserSession()
 
 const running = ref(false)
 const quota = reactive({ total: 0, auto: 0, confirmed: 0 })
 const jobs = ref<Job[]>([])
 const searchQuery = ref('')
 const filterStatus = ref('')
+const error = ref('')
+let pollTimer: ReturnType<typeof setInterval> | null = null
 
 const filteredJobs = computed(() => {
   return jobs.value.filter(job => {
@@ -156,31 +165,79 @@ const filteredJobs = computed(() => {
   })
 })
 
-async function startAutomation() {
+async function fetchJobs() {
   try {
-    // TODO: Call POST /api/automation/start
+    const res = await $fetch<{ success: boolean; data: Job[] }>('/api/jobs')
+    jobs.value = res.data || []
+  } catch (e) {
+    console.error('Failed to fetch jobs:', e)
+  }
+}
+
+async function fetchStatus() {
+  try {
+    const s = await $fetch<{ running: boolean; quota: { auto: number; confirmed: number; total: number } }>(
+      '/api/automation/status'
+    )
+    running.value = s.running
+    quota.total = s.quota.total
+    quota.auto = s.quota.auto
+    quota.confirmed = s.quota.confirmed
+    if (!s.running) stopPolling()
+  } catch (e) {
+    console.error('Failed to fetch status:', e)
+  }
+}
+
+function startPolling() {
+  stopPolling()
+  pollTimer = setInterval(async () => {
+    await fetchStatus()
+    await fetchJobs()
+  }, 3000)
+}
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+
+async function startAutomation() {
+  error.value = ''
+  try {
+    await $fetch('/api/automation/start', { method: 'POST' })
     running.value = true
-  } catch (error) {
-    console.error('Failed to start automation:', error)
+    startPolling()
+  } catch (err: any) {
+    error.value = err.data?.statusMessage || err.data?.message || 'Failed to start automation'
   }
 }
 
 async function stopAutomation() {
   try {
-    // TODO: Call POST /api/automation/stop
+    await $fetch('/api/automation/stop', { method: 'POST' })
     running.value = false
-  } catch (error) {
-    console.error('Failed to stop automation:', error)
+    stopPolling()
+    await fetchStatus()
+    await fetchJobs()
+  } catch (err: any) {
+    console.error('Failed to stop automation:', err)
   }
 }
 
 function selectJob(job: Job) {
-  // TODO: Navigate to job detail view
-  console.log('Selected job:', job)
+  if (job.jobUrl) window.open(job.jobUrl, '_blank')
+}
+
+async function logout() {
+  await clearSession()
+  await navigateTo('/login')
 }
 
 onMounted(async () => {
-  // TODO: Fetch jobs and status from API
-  // TODO: Set up polling for status updates
+  await Promise.all([fetchJobs(), fetchStatus()])
+  if (running.value) startPolling()
 })
+onUnmounted(stopPolling)
 </script>
