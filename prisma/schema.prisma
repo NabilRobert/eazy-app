@@ -20,6 +20,7 @@ model User {
   jobs              Job[]
   reviewQueue       ReviewQueue[]
   dailyQuota        DailyQuota[]
+  decisionLog       DecisionLog[]
 
   @@map("users")
 }
@@ -99,6 +100,7 @@ model Job {
   createdAt         DateTime @default(now())
 
   reviewQueue       ReviewQueue[]
+  decisionLog       DecisionLog[]
 
   @@unique([userId, linkedinJobId])
   @@map("jobs")
@@ -146,4 +148,35 @@ model DailyQuota {
 
   @@unique([userId, date])
   @@map("daily_quota")
+}
+
+// Explainable record of every brain decision (apply / review / skip).
+// Self-contained: stores inline job context so it renders even with no Job row.
+model DecisionLog {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId            String   @db.Uuid
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  jobId             String?  @db.Uuid
+  job               Job?     @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  // Inline job context (so a decision is viewable without a Job row, e.g. skips)
+  linkedinJobId     String
+  jobTitle          String?
+  company           String?
+  jobUrl            String?
+
+  agent             String   @default("evaluator") // 'evaluator' | 'search' | 'research'
+  decision          String   // 'apply' | 'review' | 'skip'
+  score             Float?   // fit score 0..1
+  criteria          Json     @default("[]")        // [{ name, verdict, weight, note }]
+  rationale         String?  @db.Text              // plain-English explanation
+
+  promptVersion     String?  // e.g. 'evaluator@v1'
+  model             String?
+
+  createdAt         DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@map("decision_log")
 }
