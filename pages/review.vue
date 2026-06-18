@@ -96,36 +96,34 @@ interface ReviewJob {
 const pendingJobs = ref<ReviewJob[]>([])
 const selectedJob = ref<ReviewJob | null>(null)
 
-async function selectJob(job: ReviewJob) {
+function selectJob(job: ReviewJob) {
   selectedJob.value = job
-  // TODO: Fetch full job details if needed
 }
 
-async function confirmJob() {
+async function resolve(action: 'confirm' | 'skip') {
   if (!selectedJob.value) return
-
+  const id = selectedJob.value.id
   try {
-    // TODO: Call PATCH /api/review/[id] with status='confirmed'
-    pendingJobs.value = pendingJobs.value.filter(j => j.id !== selectedJob.value!.id)
-    selectedJob.value = null
+    await $fetch(`/api/review/${id}`, { method: 'PATCH', body: { action } })
+    pendingJobs.value = pendingJobs.value.filter(j => j.id !== id)
+    selectedJob.value = pendingJobs.value[0] || null
   } catch (error) {
-    console.error('Failed to confirm job:', error)
+    console.error(`Failed to ${action} job:`, error)
   }
 }
 
-async function skipJob() {
-  if (!selectedJob.value) return
+const confirmJob = () => resolve('confirm')
+const skipJob = () => resolve('skip')
 
+async function fetchReview() {
   try {
-    // TODO: Call PATCH /api/review/[id] with status='skipped'
-    pendingJobs.value = pendingJobs.value.filter(j => j.id !== selectedJob.value!.id)
-    selectedJob.value = null
+    const res = await $fetch<{ success: boolean; data: ReviewJob[] }>('/api/review')
+    pendingJobs.value = res.data || []
+    selectedJob.value = pendingJobs.value[0] || null
   } catch (error) {
-    console.error('Failed to skip job:', error)
+    console.error('Failed to fetch review queue:', error)
   }
 }
 
-onMounted(async () => {
-  // TODO: Fetch pending review jobs from /api/review
-})
+onMounted(fetchReview)
 </script>
