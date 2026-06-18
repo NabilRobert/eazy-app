@@ -84,46 +84,5 @@
 </template>
 
 <script setup lang="ts">
-interface ReviewJob {
-  id: string
-  title: string
-  company: string
-  reason: string
-  description?: string
-  status: string
-}
-
-const pendingJobs = ref<ReviewJob[]>([])
-const selectedJob = ref<ReviewJob | null>(null)
-
-function selectJob(job: ReviewJob) {
-  selectedJob.value = job
-}
-
-async function resolve(action: 'confirm' | 'skip') {
-  if (!selectedJob.value) return
-  const id = selectedJob.value.id
-  try {
-    await $fetch(`/api/review/${id}`, { method: 'PATCH', body: { action } })
-    pendingJobs.value = pendingJobs.value.filter(j => j.id !== id)
-    selectedJob.value = pendingJobs.value[0] || null
-  } catch (error) {
-    console.error(`Failed to ${action} job:`, error)
-  }
-}
-
-const confirmJob = () => resolve('confirm')
-const skipJob = () => resolve('skip')
-
-async function fetchReview() {
-  try {
-    const res = await $fetch<{ success: boolean; data: ReviewJob[] }>('/api/review')
-    pendingJobs.value = res.data || []
-    selectedJob.value = pendingJobs.value[0] || null
-  } catch (error) {
-    console.error('Failed to fetch review queue:', error)
-  }
-}
-
-onMounted(fetchReview)
+const { pendingJobs, selectedJob, selectJob, confirmJob, skipJob } = useReview()
 </script>
