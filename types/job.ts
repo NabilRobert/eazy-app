@@ -22,6 +22,17 @@ export interface Job {
   createdAt: Date
 }
 
+/** Subset of a job shown on a dashboard card. */
+export interface JobCard {
+  id: string
+  title: string
+  companyName: string
+  location: string
+  status: string
+  salaryMin?: number
+  jobUrl?: string
+}
+
 export interface JobFilters {
   status?: ApplicationStatus
   company?: string
