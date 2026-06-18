@@ -4,6 +4,7 @@ import { createLinkedinService, type JobDetail, type SearchedJob } from '~/serve
 import { decryptSessionCookie } from '~/server/utils/encrypt'
 import { QuotaService } from '~/server/services/quota.service'
 import { AIService } from '~/server/services/ai.service'
+import { EvaluatorService } from '~/server/services/evaluator.service'
 
 const DAILY_LIMIT = 30
 
@@ -150,17 +151,36 @@ export class AutomationService {
 
         const salarySource = detail.salaryMin != null || detail.salaryMax != null ? 'structured' : 'not_disclosed'
 
-        // 7. Screening detection -> review queue, skip auto-apply.
-        const reasons = await service.detectScreeningQuestions(answers)
-        if (reasons.length) {
-          const saved = await this.saveJob(detail, job, { needsReview: true, salarySource })
-          await this.flagForReview(saved.id, reasons)
+        // 7. THE BRAIN: evaluate fit. Decides apply / review / skip with a
+        //    structured, explainable rationale (replaces the old regex filters).
+        const research = await AIService.getCompanySummary(detail.company).catch(() => '')
+        const evaluation = await EvaluatorService.evaluateJob(profile, detail, research)
+
+        if (evaluation.decision === 'skip') {
+          await EvaluatorService.persistDecision(this.userId, detail, evaluation, null)
           await service.closeApplyModal()
           continue
         }
 
-        // 8-9. Strict experience / degree filters (best-effort, default ignore).
-        if (this.failsStrictFilters(profile, detail.description)) {
+        if (evaluation.decision === 'review') {
+          const saved = await this.saveJob(detail, job, { needsReview: true, salarySource })
+          await this.flagForReview(saved.id, ['low_fit'])
+          await EvaluatorService.persistDecision(this.userId, detail, evaluation, saved.id)
+          await service.closeApplyModal()
+          continue
+        }
+
+        // decision === 'apply' — but screening questions still override to review.
+        const reasons = await service.detectScreeningQuestions(answers)
+        if (reasons.length) {
+          const saved = await this.saveJob(detail, job, { needsReview: true, salarySource })
+          await this.flagForReview(saved.id, reasons)
+          await EvaluatorService.persistDecision(
+            this.userId,
+            detail,
+            { ...evaluation, decision: 'review', rationale: `${evaluation.rationale} [Auto-apply held: ${reasons.join(', ')}]` },
+            saved.id
+          )
           await service.closeApplyModal()
           continue
         }
@@ -170,7 +190,13 @@ export class AutomationService {
         if (fill.status !== 'ready_to_submit') {
           // Unexpected required fields surfaced — treat as review, don't submit.
           const saved = await this.saveJob(detail, job, { needsReview: true, salarySource })
-          await this.flagForReview(saved.id, fill.unfilledFields.length ? ['custom_screening'] : ['custom_screening'])
+          await this.flagForReview(saved.id, ['custom_screening'])
+          await EvaluatorService.persistDecision(
+            this.userId,
+            detail,
+            { ...evaluation, decision: 'review', rationale: `${evaluation.rationale} [Form needs manual input]` },
+            saved.id
+          )
           await service.closeApplyModal()
           continue
         }
@@ -182,8 +208,9 @@ export class AutomationService {
           continue
         }
 
-        // 14-15. Persist + count.
+        // 14-15. Persist + count + log the (successful) apply decision.
         const saved = await this.saveJob(detail, job, { needsReview: false, salarySource })
+        await EvaluatorService.persistDecision(this.userId, detail, evaluation, saved.id)
         await QuotaService.incrementAutoApplied(this.userId)
 
         // 16. AI enrichment, non-blocking.
@@ -227,18 +254,6 @@ export class AutomationService {
     if (!minSalary) return false
     const disclosed = detail.salaryMax ?? detail.salaryMin
     return disclosed != null && disclosed < minSalary
-  }
-
-  /** Best-effort strict experience/degree gate based on the job description. */
-  private failsStrictFilters(profile: any, description: string): boolean {
-    if (profile.strictExperience && profile.yearsExperience != null) {
-      const req = description.match(/(\d+)\s*\+?\s*years?/i)
-      if (req && parseInt(req[1], 10) > profile.yearsExperience) return true
-    }
-    if (profile.strictDegree && !profile.education) {
-      if (/bachelor|degree|b\.?sc|master|m\.?sc|phd/i.test(description)) return true
-    }
-    return false
   }
 
   /** Insert/refresh the job row (idempotent on userId+linkedinJobId). */
