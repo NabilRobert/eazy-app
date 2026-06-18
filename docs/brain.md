@@ -1,15 +1,17 @@
-# Eazy — AI Brain & Self-Improvement (V2 plan)
+# Eazy — AI Brain & Operator-Controlled Improvement (V2 plan)
 
-Supplements the V1 plan (PLAN.md.docx). Adds an explainable, self-improving
-decision layer on top of the automation worker.
+Supplements the V1 plan (PLAN.md.docx). Adds an explainable decision layer on
+top of the automation worker, plus an improvement loop that **only the operator
+triggers** (manual, backend-only — see §6 Governance).
 
 ## 1. Goal
 
 Move from regex/hard-filter decisions to **judged** decisions that (a) record
-*why* every choice was made and (b) get better over time from the data Eazy
-gathers. The model itself (gpt-5.4-mini via Sumopod) is fixed — improvement
-happens in the rubric, prompt, context, and a per-agent policy distilled from
-history. It's a data flywheel, not weight training.
+*why* every choice was made and (b) can be improved over time from the data Eazy
+gathers — but only when a human decides to. The model itself (gpt-5.4-mini via
+Sumopod) is fixed — improvement happens in the rubric, prompt, context, and a
+per-agent policy distilled from history. It's a data flywheel, not weight
+training, and it never turns itself.
 
 ## 2. Agents (built as structured steps, one task each)
 
@@ -59,13 +61,24 @@ Two layers, both reading the brain's own accumulated data:
 1. **Memory at decision time.** Before a run, an agent loads a distilled summary
    of its history (queries → fit scores → applied → outcome) and biases its next
    choices toward what worked.
-2. **Scheduled reflection.** A scheduled task periodically reads the whole
-   `decision_log` + job outcomes and rewrites a **versioned policy**
-   (`agent_policy` table) per agent. Next runs load the new policy as context.
+2. **Operator-triggered reflection (NOT autonomous).** A reflection pass reads
+   the whole `decision_log` + job outcomes and proposes a **versioned policy**
+   (`agent_policy` table) per agent. It runs **only when the operator invokes
+   it** — never on a schedule, never on a timer, never decided by the AI.
 
 Ground truth = job status (applied → interview → offer → rejected), which Eazy
 already tracks. Early on, lean on the immediate evaluator fit score; as real
 outcomes accumulate (weeks), weight those more.
+
+### Governance — improvement is manual and backend-only
+- **No self-triggering.** The brain never decides to improve itself. A human
+  starts every reflection/policy update.
+- **Backend only.** The trigger is a backend command (a CLI / npm script run by
+  the operator). It is **not** an API route and **not** in the web app — nothing
+  in the site can start it.
+- **No scheduling.** Do not wire reflection into scheduled tasks / cron for now.
+- **Human approval to promote.** A proposed policy/prompt version is only adopted
+  after the operator reviews it and it passes the eval gate.
 
 ### Guardrails (so it can't self-degrade)
 - **Eval set:** a fixed set of labelled past decisions. A new policy/prompt
@@ -83,9 +96,11 @@ outcomes accumulate (weeks), weight those more.
 4. `/api/decisions` + Thought Process page (`/decisions`).
 5. Structured researcher signals feeding the evaluator.
 6. `agent_policy` table + memory-at-decision-time.
-7. Scheduled reflection job + eval harness/gate.
+7. Eval harness/gate + an **operator-run** reflection command (backend CLI /
+   npm script only — no API route, no UI, no scheduler).
 8. (Optional, later) searcher agent; LLM-as-judge auto-grading; fine-tuning if
-   ever warranted.
+   ever warranted. Autonomous/scheduled reflection stays out of scope until
+   explicitly re-enabled.
 
 Steps 1–4 deliver the visible "show me the thinking" feature; 5–7 deliver the
-self-improvement; 8 is future.
+operator-controlled improvement; 8 is future.
