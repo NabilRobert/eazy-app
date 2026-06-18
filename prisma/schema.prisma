@@ -81,7 +81,7 @@ model Job {
 
   linkedinJobId     String   // used for duplicate detection
   title             String?
-  company           String?
+  companyName       String?
   location          String?
   employmentType    String?
   postedDate        String?

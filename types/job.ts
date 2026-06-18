@@ -7,7 +7,7 @@ export interface Job {
   userId: string
   linkedinJobId: string
   title: string
-  company: string
+  companyName: string
   location: string
   employmentType: string
   postedDate: string

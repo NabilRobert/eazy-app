@@ -264,7 +264,7 @@ export class AutomationService {
   ) {
     const data = {
       title: detail.title || listing.title,
-      company: detail.company || listing.company,
+      companyName: detail.company || listing.company,
       location: detail.location || listing.location,
       employmentType: detail.employmentType,
       postedDate: detail.postedDate,

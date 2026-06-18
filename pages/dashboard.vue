@@ -101,7 +101,7 @@
             @click="selectJob(job)"
           >
             <h3 class="font-semibold text-lg truncate">{{ job.title }}</h3>
-            <p class="text-gray-600 truncate">{{ job.company }}</p>
+            <p class="text-gray-600 truncate">{{ job.companyName }}</p>
             <p class="text-sm text-gray-500 mt-2">{{ job.location }}</p>
             <div class="mt-4 flex justify-between items-center">
               <span :class="{
@@ -132,7 +132,7 @@
 interface Job {
   id: string
   title: string
-  company: string
+  companyName: string
   location: string
   status: string
   salaryMin?: number
@@ -148,7 +148,7 @@ const filteredJobs = computed(() => {
   return jobs.value.filter(job => {
     const matchesSearch = !searchQuery.value ||
       job.title.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
-      job.company.toLowerCase().includes(searchQuery.value.toLowerCase())
+      job.companyName.toLowerCase().includes(searchQuery.value.toLowerCase())
 
     const matchesStatus = !filterStatus.value || job.status === filterStatus.value
 
