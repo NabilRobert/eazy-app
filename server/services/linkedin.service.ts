@@ -504,33 +504,42 @@ export class LinkedinService {
   }
 
   /**
-   * Navigate to a job posting, scrape its detail, and open the Easy Apply
-   * modal. Returns the scraped detail plus whether the modal opened (some
-   * postings route to an external site and have no Easy Apply button).
+   * Navigate to a job posting and scrape its detail WITHOUT opening the Easy
+   * Apply modal. Lets the brain decide apply/skip before we touch the form
+   * (cheaper + less bot-detectable). Returns null on failure.
    */
-  async openEasyApply(jobUrl: string): Promise<OpenApplyResult> {
+  async scrapeJobDetail(jobUrl: string): Promise<JobDetail | null> {
     try {
       const page = await this.ensurePage()
       await page.goto(jobUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
       await page.waitForTimeout(1500)
+      return await this.extractJobDetail(page, jobUrl)
+    } catch (err: any) {
+      console.error(`[LinkedIn] scrapeJobDetail failed: ${err.message}`)
+      return null
+    }
+  }
 
-      const detail = await this.extractJobDetail(page, jobUrl)
-
+  /**
+   * Open the Easy Apply modal on the currently-loaded job page. Returns false
+   * when there's no Easy Apply button (external apply) or it fails to open.
+   */
+  async openApplyModal(): Promise<boolean> {
+    try {
+      const page = this.page
+      if (!page || page.isClosed()) return false
       const applyBtn = page
         .locator('button.jobs-apply-button, button[aria-label*="Easy Apply" i]')
         .first()
-      if (!(await applyBtn.count())) {
-        return { opened: false, detail, message: 'No Easy Apply button (likely external apply).' }
-      }
+      if (!(await applyBtn.count())) return false
       await applyBtn.click({ timeout: 10000 }).catch(() => {})
 
       const modal = page.locator('div[role="dialog"], .jobs-easy-apply-modal').first()
       await modal.waitFor({ state: 'visible', timeout: 15000 }).catch(() => {})
-      const opened = (await modal.count()) > 0
-      return { opened, detail, message: opened ? undefined : 'Easy Apply modal did not open.' }
+      return (await modal.count()) > 0
     } catch (err: any) {
-      console.error(`[LinkedIn] openEasyApply failed: ${err.message}`)
-      return { opened: false, detail: null, message: err.message }
+      console.error(`[LinkedIn] openApplyModal failed: ${err.message}`)
+      return false
     }
   }
 
@@ -857,20 +866,22 @@ export class LinkedinService {
    * 'custom_screening'). Pass the candidate's prefilled answers so standard,
    * auto-answerable questions are not mistaken for custom screening.
    */
-  async detectScreeningQuestions(prefilledAnswers: Record<string, string> = {}): Promise<string[]> {
+  async detectScreeningQuestions(
+    prefilledAnswers: Record<string, string> = {}
+  ): Promise<{ reasons: string[]; questions: string[] }> {
     try {
       const page = this.page
-      if (!page || page.isClosed()) return []
+      if (!page || page.isClosed()) return { reasons: [], questions: [] }
       const modal = page.locator('div[role="dialog"], .jobs-easy-apply-modal').first()
-      if (!(await modal.count())) return []
+      if (!(await modal.count())) return { reasons: [], questions: [] }
 
       const labels = await this.collectModalLabels(modal)
-      const { reasons } = ScreeningService.classifyScreening(labels, prefilledAnswers)
+      const { reasons, customQuestions } = ScreeningService.classifyScreening(labels, prefilledAnswers)
       if (reasons.length) console.log(`[LinkedIn] Screening flags: ${reasons.join(', ')}`)
-      return reasons
+      return { reasons, questions: customQuestions }
     } catch (err: any) {
       console.error(`[LinkedIn] detectScreeningQuestions failed: ${err.message}`)
-      return []
+      return { reasons: [], questions: [] }
     }
   }
 

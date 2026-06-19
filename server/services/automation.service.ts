@@ -167,45 +167,41 @@ export class AutomationService {
         //    decided to skip on a prior run — avoids re-opening + re-evaluating.
         if (await this.alreadyProcessed(job.linkedinJobId)) continue
 
-        // 4 + scrape. Open the job and read its detail.
-        const { opened, detail } = await service.openEasyApply(job.jobUrl)
+        // 4 + scrape. Read the job detail WITHOUT opening the modal yet.
+        const detail = await service.scrapeJobDetail(job.jobUrl)
         if (!detail) continue
 
-        // 6. Salary filter (only when a salary is disclosed).
-        if (this.belowMinSalary(profile.minSalary, detail)) {
-          await service.closeApplyModal()
-          continue
-        }
-
-        if (!opened) continue // no Easy Apply (external apply) — skip silently
+        // 6. Salary filter (only when a salary is disclosed). No modal open yet.
+        if (this.belowMinSalary(profile.minSalary, detail)) continue
 
         const salarySource = detail.salaryMin != null || detail.salaryMax != null ? 'structured' : 'not_disclosed'
 
-        // 7. THE BRAIN: evaluate fit from the posting alone. Decides apply /
-        //    review / skip with a structured, explainable rationale. Company
-        //    research is intentionally NOT fetched here (cost) — it's generated
-        //    in enrich() only for jobs we actually apply to.
+        // 7. THE BRAIN: evaluate fit from the posting alone — BEFORE opening the
+        //    Easy Apply modal (cheaper + less bot-detectable). Company research
+        //    is generated in enrich() only for jobs we actually apply to.
         const evaluation = await EvaluatorService.evaluateJob(profile, detail, '')
 
         if (evaluation.decision === 'skip') {
           await EvaluatorService.persistDecision(this.userId, detail, evaluation, null)
-          await service.closeApplyModal()
           continue
         }
 
         if (evaluation.decision === 'review') {
           const saved = await this.saveJob(detail, job, { needsReview: true, salarySource })
-          await this.flagForReview(saved.id, ['low_fit'])
+          await this.flagForReview(saved.id, ['low_fit'], [])
           await EvaluatorService.persistDecision(this.userId, detail, evaluation, saved.id)
-          await service.closeApplyModal()
           continue
         }
 
-        // decision === 'apply' — but screening questions still override to review.
-        const reasons = await service.detectScreeningQuestions(answers)
+        // decision === 'apply' — now open the modal.
+        const opened = await service.openApplyModal()
+        if (!opened) continue // external apply / modal failed — skip silently
+
+        // Screening questions still override to review (capture them for confirm).
+        const { reasons, questions } = await service.detectScreeningQuestions(answers)
         if (reasons.length) {
           const saved = await this.saveJob(detail, job, { needsReview: true, salarySource })
-          await this.flagForReview(saved.id, reasons)
+          await this.flagForReview(saved.id, reasons, questions)
           await EvaluatorService.persistDecision(
             this.userId,
             detail,
@@ -224,7 +220,7 @@ export class AutomationService {
         if (fill.status !== 'ready_to_submit') {
           // Unexpected required fields surfaced — treat as review, don't submit.
           const saved = await this.saveJob(detail, job, { needsReview: true, salarySource })
-          await this.flagForReview(saved.id, ['custom_screening'])
+          await this.flagForReview(saved.id, ['custom_screening'], fill.unfilledFields)
           await EvaluatorService.persistDecision(
             this.userId,
             detail,
@@ -338,12 +334,15 @@ export class AutomationService {
     })
   }
 
-  /** Add review-queue rows for each detected screening reason. */
-  private async flagForReview(jobId: string, reasons: string[]) {
-    const unique = [...new Set(reasons)]
-    for (const reason of unique) {
-      await prisma.reviewQueue.create({ data: { userId: this.userId, jobId, reason } })
-    }
+  /**
+   * Add a review-queue row capturing why the job was flagged and which custom
+   * questions need answering (so the user can answer them and confirm).
+   */
+  private async flagForReview(jobId: string, reasons: string[], questions: string[] = []) {
+    const reason = [...new Set(reasons)].join(',')
+    await prisma.reviewQueue.create({
+      data: { userId: this.userId, jobId, reason, questions: questions as any }
+    })
   }
 
   /**
