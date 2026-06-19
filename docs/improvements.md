@@ -32,8 +32,9 @@ this is the queue, ordered roughly by priority. Check items off as they ship.
       mutating requests whose Origin host != request host. (commit 1a870ad)
 - [x] **Auth rate limiting added.** `server/utils/rate-limit.ts`; login 10/min,
       register 5/min per IP. (commit 1a870ad) — in-memory; Redis for multi-instance.
-- [ ] **`zod` is a dependency but unused.** Validate all request bodies with zod
-      schemas instead of ad-hoc checks.
+- [x] **zod validation wired in.** `validateBody()` + shared schemas validate
+      every body route (auth, linkedin-auth/verify, jobs/review PATCH, ai,
+      profile PUT); profile PUT strips unknown keys. (commit 8bdafcf)
 
 ## P2 — Cost & efficiency (AI/LinkedIn calls)
 
