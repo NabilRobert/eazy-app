@@ -163,8 +163,9 @@ export class AutomationService {
         if (await this.shouldStop()) break
         if (await QuotaService.resetQuotaIfNeeded(this.userId)) break // new day -> stop, quota reset
 
-        // 5. Duplicate detection.
-        if (await this.isDuplicate(job.linkedinJobId)) continue
+        // 5. Skip jobs we've already handled (applied/flagged) OR already
+        //    decided to skip on a prior run — avoids re-opening + re-evaluating.
+        if (await this.alreadyProcessed(job.linkedinJobId)) continue
 
         // 4 + scrape. Open the job and read its detail.
         const { opened, detail } = await service.openEasyApply(job.jobUrl)
@@ -180,10 +181,11 @@ export class AutomationService {
 
         const salarySource = detail.salaryMin != null || detail.salaryMax != null ? 'structured' : 'not_disclosed'
 
-        // 7. THE BRAIN: evaluate fit. Decides apply / review / skip with a
-        //    structured, explainable rationale (replaces the old regex filters).
-        const research = await AIService.getCompanySummary(detail.company).catch(() => '')
-        const evaluation = await EvaluatorService.evaluateJob(profile, detail, research)
+        // 7. THE BRAIN: evaluate fit from the posting alone. Decides apply /
+        //    review / skip with a structured, explainable rationale. Company
+        //    research is intentionally NOT fetched here (cost) — it's generated
+        //    in enrich() only for jobs we actually apply to.
+        const evaluation = await EvaluatorService.evaluateJob(profile, detail, '')
 
         if (evaluation.decision === 'skip') {
           await EvaluatorService.persistDecision(this.userId, detail, evaluation, null)
@@ -287,11 +289,20 @@ export class AutomationService {
     return answers
   }
 
-  private async isDuplicate(linkedinJobId: string): Promise<boolean> {
+  /**
+   * True if this job already has a row (applied/flagged) OR we've previously
+   * logged a skip decision for it — so we don't re-open and re-evaluate it.
+   */
+  private async alreadyProcessed(linkedinJobId: string): Promise<boolean> {
     const existing = await prisma.job.findUnique({
       where: { userId_linkedinJobId: { userId: this.userId, linkedinJobId } }
     })
-    return !!existing
+    if (existing) return true
+    const priorSkip = await prisma.decisionLog.findFirst({
+      where: { userId: this.userId, linkedinJobId, decision: 'skip' },
+      select: { id: true }
+    })
+    return !!priorSkip
   }
 
   /** True only when a salary is disclosed AND its max is below the user min. */
