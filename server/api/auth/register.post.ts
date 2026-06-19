@@ -1,5 +1,6 @@
 import prisma from '~/server/utils/prisma'
 import { hashPassword } from '~/server/utils/password'
+import { rateLimit } from '~/server/utils/rate-limit'
 
 /**
  * POST /api/auth/register
@@ -7,6 +8,9 @@ import { hashPassword } from '~/server/utils/password'
  * candidate profile, then starts a session.
  */
 export default defineEventHandler(async (event) => {
+  const ip = getRequestIP(event, { xForwardedFor: true }) || 'unknown'
+  rateLimit(`register:${ip}`, 5, 60_000) // 5 sign-ups / minute / IP
+
   const { email, password } = await readBody<{ email?: string; password?: string }>(event)
 
   if (!email || !password) {

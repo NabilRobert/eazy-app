@@ -1,11 +1,15 @@
 import prisma from '~/server/utils/prisma'
 import { verifyPassword } from '~/server/utils/password'
+import { rateLimit } from '~/server/utils/rate-limit'
 
 /**
  * POST /api/auth/login
  * Body: { email, password }. Verifies credentials and starts a session.
  */
 export default defineEventHandler(async (event) => {
+  const ip = getRequestIP(event, { xForwardedFor: true }) || 'unknown'
+  rateLimit(`login:${ip}`, 10, 60_000) // 10 attempts / minute / IP
+
   const { email, password } = await readBody<{ email?: string; password?: string }>(event)
 
   if (!email || !password) {
