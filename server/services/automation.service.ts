@@ -24,16 +24,27 @@ const HEARTBEAT_STALE_MS = 30_000 // a run with no heartbeat for this long is co
 export class AutomationService {
   private userId: string
   private stopFlag = false
+  private dailyCap = DAILY_LIMIT // lowered during warm-up (see warmupDailyLimit)
 
   constructor(userId: string) {
     this.userId = userId
+  }
+
+  /**
+   * Warm-up ramp: don't apply at full volume on a new account. Caps the daily
+   * total at 10 on day 1, then +5/day up to the full 30, based on firstRunAt.
+   */
+  private warmupDailyLimit(firstRunAt: Date | null): number {
+    if (!firstRunAt) return 10
+    const days = Math.floor((Date.now() - firstRunAt.getTime()) / 86_400_000)
+    return Math.min(DAILY_LIMIT, 10 + days * 5)
   }
 
   /** Stop conditions checked before every job: explicit stop or quota hit. */
   async shouldStop(): Promise<boolean> {
     if (this.stopFlag) return true
     const quota = await QuotaService.getOrCreateQuota(this.userId)
-    return quota.stopFlag || quota.totalApplied >= DAILY_LIMIT
+    return quota.stopFlag || quota.totalApplied >= this.dailyCap
   }
 
   /** Is a worker currently alive for this user (running + fresh heartbeat)? */
@@ -145,6 +156,15 @@ export class AutomationService {
         })
         return
       }
+
+      // Warm-up ramp: stamp first run, then cap today's volume accordingly.
+      if (!profile.firstRunAt) {
+        await prisma.candidateProfile
+          .update({ where: { userId: this.userId }, data: { firstRunAt: new Date() } })
+          .catch(() => {})
+        profile.firstRunAt = new Date()
+      }
+      this.dailyCap = this.warmupDailyLimit(profile.firstRunAt)
 
       const answers = this.buildAnswers(profile)
       const resumePath = await this.downloadResumeIfAny(profile)

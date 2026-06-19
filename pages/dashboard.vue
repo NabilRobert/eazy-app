@@ -24,6 +24,12 @@
     </header>
 
     <main class="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+      <!-- Account-safety notice -->
+      <div class="rounded-lg bg-amber-50 border border-amber-200 p-4 mb-6 text-sm text-amber-800">
+        Automating LinkedIn is against their Terms of Service and can lead to account
+        restrictions. Eazy paces applications and ramps up slowly to reduce risk, but use at your own discretion.
+      </div>
+
       <!-- Automation Control -->
       <div class="rounded-lg bg-white p-6 shadow mb-6">
         <div class="flex justify-between items-center">

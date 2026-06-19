@@ -904,8 +904,13 @@ export class LinkedinService {
    * Randomized delay between 3-8 seconds
    */
   async randomDelay(): Promise<void> {
-    const delay = Math.random() * 5000 + 3000 // 3-8 seconds
-    await new Promise(resolve => setTimeout(resolve, delay))
+    // Mostly 5–12s between jobs, with an occasional longer "coffee break" to
+    // look less robotic and reduce bot-detection risk.
+    const coffeeBreak = Math.random() < 0.15
+    const delay = coffeeBreak
+      ? Math.random() * 20000 + 20000 // 20–40s
+      : Math.random() * 7000 + 5000 // 5–12s
+    await new Promise((resolve) => setTimeout(resolve, delay))
   }
 
   /**
