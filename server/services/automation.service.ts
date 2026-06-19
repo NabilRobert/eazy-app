@@ -149,6 +149,7 @@ export class AutomationService {
       const answers = this.buildAnswers(profile)
       const resumePath = await this.downloadResumeIfAny(profile)
       await this.heartbeat()
+      const runDay = QuotaService.localDay(profile.timezone).getTime() // user-local day at run start
       const jobs = await service.searchJobs({
         keywords: profile.desiredPosition,
         location: profile.preferredLocation || undefined,
@@ -159,9 +160,14 @@ export class AutomationService {
 
       for (const job of jobs) {
         await this.heartbeat() // liveness tick per job
-        // 1-3. Stop flag / daily limit / midnight rollover.
+        // 1-3. Stop flag / daily limit / user-local midnight rollover.
         if (await this.shouldStop()) break
-        if (await QuotaService.resetQuotaIfNeeded(this.userId)) break // new day -> stop, quota reset
+        if (QuotaService.localDay(profile.timezone).getTime() !== runDay) break // new local day -> stop
+
+        // Reserve confirmed-review slots: stop auto-applying when auto capacity
+        // is used up (cap is 20 while confirmed items are pending, else 30).
+        const { autoSlots } = await QuotaService.getAvailableSlots(this.userId)
+        if (autoSlots <= 0) break
 
         // 5. Skip jobs we've already handled (applied/flagged) OR already
         //    decided to skip on a prior run — avoids re-opening + re-evaluating.
