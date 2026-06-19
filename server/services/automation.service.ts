@@ -11,17 +11,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const DAILY_LIMIT = 30
-
-/**
- * Process-local registry of running workers, so /status can report whether a
- * loop is active in this instance. (Single-server/dev correct; for multi
- * instance, derive running state from a DB heartbeat instead.)
- */
-const runningWorkers = new Map<string, string>() // userId -> human status string
+const HEARTBEAT_STALE_MS = 30_000 // a run with no heartbeat for this long is considered dead
 
 /**
  * Main worker loop for LinkedIn automation. Runs job-by-job until stop_flag is
  * set, the daily limit is hit, or the day rolls over.
+ *
+ * Run-state lives in the DB (candidate_profile.automationStatus + heartbeat) so
+ * status is correct across restarts/instances and a crashed worker is detected
+ * via a stale heartbeat.
  */
 export class AutomationService {
   private userId: string
@@ -38,11 +36,38 @@ export class AutomationService {
     return quota.stopFlag || quota.totalApplied >= DAILY_LIMIT
   }
 
+  /** Is a worker currently alive for this user (running + fresh heartbeat)? */
+  private isLive(status: string, heartbeat: Date | null): boolean {
+    return status === 'running' && !!heartbeat && Date.now() - heartbeat.getTime() < HEARTBEAT_STALE_MS
+  }
+
+  /** Mark the worker running/idle in the DB and stamp the heartbeat. */
+  private async setRunning(running: boolean): Promise<void> {
+    await prisma.candidateProfile
+      .update({
+        where: { userId: this.userId },
+        data: { automationStatus: running ? 'running' : 'idle', automationHeartbeat: new Date() }
+      })
+      .catch(() => {})
+  }
+
+  /** Refresh the liveness heartbeat (called each loop tick). */
+  private async heartbeat(): Promise<void> {
+    await prisma.candidateProfile
+      .update({ where: { userId: this.userId }, data: { automationHeartbeat: new Date() } })
+      .catch(() => {})
+  }
+
   /** Current run status + quota counts, for GET /api/automation/status. */
   async getStatus(): Promise<AutomationStatus> {
     try {
       const quota = await QuotaService.getOrCreateQuota(this.userId)
-      const running = runningWorkers.has(this.userId) && !quota.stopFlag
+      const profile = await prisma.candidateProfile.findUnique({
+        where: { userId: this.userId },
+        select: { automationStatus: true, automationHeartbeat: true }
+      })
+      const running =
+        this.isLive(profile?.automationStatus ?? 'idle', profile?.automationHeartbeat ?? null) && !quota.stopFlag
       return {
         running,
         quota: {
@@ -50,7 +75,7 @@ export class AutomationService {
           confirmed: quota.confirmedApplied,
           total: quota.totalApplied
         },
-        status: running ? runningWorkers.get(this.userId) || 'running' : 'idle'
+        status: running ? 'running' : 'idle'
       }
     } catch {
       return {
@@ -63,8 +88,8 @@ export class AutomationService {
   }
 
   /**
-   * Validate preconditions and run the worker loop to completion. The caller
-   * (POST /api/automation/start) decides whether to await or fire-and-forget.
+   * Validate preconditions and launch the worker loop in the background. The
+   * route returns immediately; the client polls /status.
    */
   async start(): Promise<void> {
     const profile = await prisma.candidateProfile.findUnique({ where: { userId: this.userId } })
@@ -75,8 +100,7 @@ export class AutomationService {
     if (!profile.desiredPosition) {
       throw new Error('Set a desired position in Settings before starting.')
     }
-
-    if (runningWorkers.has(this.userId)) {
+    if (this.isLive(profile.automationStatus, profile.automationHeartbeat)) {
       throw new Error('Automation is already running.')
     }
 
@@ -84,8 +108,8 @@ export class AutomationService {
     await QuotaService.setStopFlag(this.userId, false)
 
     // Mark running synchronously so a rapid second /start is rejected, then run
-    // the loop in the background; the route returns and the client polls /status.
-    runningWorkers.set(this.userId, 'starting')
+    // the loop in the background.
+    await this.setRunning(true)
     void this.run(profile).catch((e) => console.error('[Automation] background loop error:', e?.message))
   }
 
@@ -93,6 +117,7 @@ export class AutomationService {
   async stop(): Promise<void> {
     this.stopFlag = true
     await QuotaService.setStopFlag(this.userId, true)
+    await this.setRunning(false)
   }
 
   /**
@@ -103,7 +128,7 @@ export class AutomationService {
   private async run(profile: any): Promise<void> {
     const config = useRuntimeConfig()
     const service = createLinkedinService(config.steel_api_key)
-    runningWorkers.set(this.userId, 'starting')
+    await this.setRunning(true)
 
     try {
       // Restore the encrypted LinkedIn session into a fresh Steel browser.
@@ -118,13 +143,12 @@ export class AutomationService {
           where: { userId: this.userId },
           data: { linkedinAuthStatus: 'expired' }
         })
-        runningWorkers.set(this.userId, 'expired')
         return
       }
 
       const answers = this.buildAnswers(profile)
       const resumePath = await this.downloadResumeIfAny(profile)
-      runningWorkers.set(this.userId, 'searching')
+      await this.heartbeat()
       const jobs = await service.searchJobs({
         keywords: profile.desiredPosition,
         location: profile.preferredLocation || undefined,
@@ -133,8 +157,8 @@ export class AutomationService {
         limit: 50
       })
 
-      runningWorkers.set(this.userId, 'applying')
       for (const job of jobs) {
+        await this.heartbeat() // liveness tick per job
         // 1-3. Stop flag / daily limit / midnight rollover.
         if (await this.shouldStop()) break
         if (await QuotaService.resetQuotaIfNeeded(this.userId)) break // new day -> stop, quota reset
@@ -229,10 +253,9 @@ export class AutomationService {
       }
     } catch (err: any) {
       console.error(`[Automation] worker loop failed: ${err.message}`)
-      runningWorkers.set(this.userId, 'error')
     } finally {
       await service.closeSession().catch(() => {})
-      runningWorkers.delete(this.userId)
+      await this.setRunning(false)
     }
   }
 

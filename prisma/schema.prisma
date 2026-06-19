@@ -7,7 +7,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 model User {
@@ -65,6 +64,10 @@ model CandidateProfile {
   // Automation Settings
   triggerType           String   @default("manual") // 'manual' | 'scheduled'
   scheduledTime         String?  // e.g. '09:00'
+
+  // Worker run-state (DB-backed so status survives restarts / works across instances)
+  automationStatus      String   @default("idle")   // 'idle' | 'running'
+  automationHeartbeat   DateTime?                    // updated each loop tick; stale => worker dead
 
   updatedAt             DateTime @updatedAt
 
