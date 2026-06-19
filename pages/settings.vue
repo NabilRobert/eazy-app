@@ -45,6 +45,22 @@
         </form>
       </div>
 
+      <!-- Resume -->
+      <div class="rounded-lg bg-white shadow p-6">
+        <h2 class="text-xl font-bold mb-4">Resume</h2>
+        <div class="flex items-center gap-3">
+          <span :class="['h-2.5 w-2.5 rounded-full', resumeUploaded ? 'bg-green-500' : 'bg-gray-300']"></span>
+          <span class="text-sm text-gray-700">{{ resumeUploaded ? 'Resume uploaded' : 'No resume yet' }}</span>
+        </div>
+        <label class="mt-4 inline-block">
+          <span class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer inline-block">
+            {{ resumeUploading ? 'Uploading…' : resumeUploaded ? 'Replace PDF' : 'Upload PDF' }}
+          </span>
+          <input type="file" accept="application/pdf" class="hidden" :disabled="resumeUploading" @change="onResumeChange" />
+        </label>
+        <p class="text-xs text-gray-500 mt-2">PDF only, up to 5MB.</p>
+      </div>
+
       <!-- Job Targeting -->
       <div class="rounded-lg bg-white shadow p-6">
         <h2 class="text-xl font-bold mb-4">Job Targeting</h2>
@@ -166,6 +182,9 @@ const {
   saveProfile,
   saveTargeting,
   saveAutomation,
+  resumeUploaded,
+  resumeUploading,
+  onResumeChange,
   li,
   openLinkedin,
   submitCreds,

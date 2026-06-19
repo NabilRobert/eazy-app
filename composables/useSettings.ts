@@ -29,6 +29,33 @@ export function useSettings() {
     scheduledTime: '09:00'
   })
 
+  // --- Resume upload ---
+  const resumeUploaded = ref(false)
+  const resumeUploading = ref(false)
+  async function uploadResume(file: File | null | undefined) {
+    if (!file) return
+    if (file.type && !file.type.includes('pdf')) {
+      flash('Resume must be a PDF')
+      return
+    }
+    resumeUploading.value = true
+    try {
+      const fd = new FormData()
+      fd.append('resume', file)
+      await $fetch('/api/profile/resume', { method: 'POST', body: fd })
+      resumeUploaded.value = true
+      flash('Resume uploaded')
+    } catch (err: any) {
+      flash(err.data?.statusMessage || 'Failed to upload resume')
+    } finally {
+      resumeUploading.value = false
+    }
+  }
+  function onResumeChange(e: Event) {
+    const input = e.target as HTMLInputElement
+    uploadResume(input.files?.[0])
+  }
+
   const linkedinStatus = ref<LinkedinStatus>('expired')
   const linkedinDot = computed(() =>
     linkedinStatus.value === 'authenticated'
@@ -143,6 +170,7 @@ export function useSettings() {
         targeting.minSalary = p.minSalary ?? null
         automation.triggerType = p.triggerType ?? 'manual'
         automation.scheduledTime = p.scheduledTime ?? '09:00'
+        resumeUploaded.value = !!p.resumeUrl
         if (['authenticated', 'expired', 'pending_2fa'].includes(p.linkedinAuthStatus)) {
           linkedinStatus.value = p.linkedinAuthStatus
         }
@@ -163,6 +191,9 @@ export function useSettings() {
     saveProfile,
     saveTargeting,
     saveAutomation,
+    resumeUploaded,
+    resumeUploading,
+    onResumeChange,
     li,
     openLinkedin,
     submitCreds,

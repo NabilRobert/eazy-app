@@ -807,6 +807,28 @@ export class LinkedinService {
   }
 
   /**
+   * Attach a resume PDF to the open Easy Apply modal, if it exposes a file
+   * input. Returns false when no upload field is present (LinkedIn often
+   * pre-attaches the profile resume, which is fine).
+   */
+  async attachResume(localPath: string): Promise<boolean> {
+    try {
+      const page = this.page
+      if (!page || page.isClosed()) return false
+      const modal = page.locator('div[role="dialog"], .jobs-easy-apply-modal').first()
+      const fileInput = modal.locator('input[type="file"]').first()
+      if (!(await fileInput.count())) return false
+      await fileInput.setInputFiles(localPath)
+      await page.waitForTimeout(1500)
+      console.log('[LinkedIn] Resume attached')
+      return true
+    } catch (err: any) {
+      console.error(`[LinkedIn] attachResume failed: ${err.message}`)
+      return false
+    }
+  }
+
+  /**
    * Close an in-progress Easy Apply modal, confirming the discard prompt if
    * LinkedIn shows one. Used when a job is skipped or flagged for review.
    */

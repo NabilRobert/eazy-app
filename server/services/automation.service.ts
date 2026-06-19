@@ -5,6 +5,10 @@ import { decryptSessionCookie } from '~/server/utils/encrypt'
 import { QuotaService } from '~/server/services/quota.service'
 import { AIService } from '~/server/services/ai.service'
 import { EvaluatorService } from '~/server/services/evaluator.service'
+import { downloadResume } from '~/server/utils/supabase'
+import { writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 const DAILY_LIMIT = 30
 
@@ -119,6 +123,7 @@ export class AutomationService {
       }
 
       const answers = this.buildAnswers(profile)
+      const resumePath = await this.downloadResumeIfAny(profile)
       runningWorkers.set(this.userId, 'searching')
       const jobs = await service.searchJobs({
         keywords: profile.desiredPosition,
@@ -185,6 +190,9 @@ export class AutomationService {
           continue
         }
 
+        // Attach resume if the form exposes an upload field.
+        if (resumePath) await service.attachResume(resumePath)
+
         // 12. Fill the multi-step form.
         const fill = await service.fillEasyApplyForm(answers)
         if (fill.status !== 'ready_to_submit') {
@@ -225,6 +233,20 @@ export class AutomationService {
     } finally {
       await service.closeSession().catch(() => {})
       runningWorkers.delete(this.userId)
+    }
+  }
+
+  /** Download the candidate's resume to a temp file for Playwright upload. */
+  private async downloadResumeIfAny(profile: any): Promise<string | null> {
+    if (!profile.resumeUrl) return null
+    try {
+      const bytes = await downloadResume(profile.resumeUrl)
+      const path = join(tmpdir(), `eazy-resume-${this.userId}.pdf`)
+      await writeFile(path, bytes)
+      return path
+    } catch (e: any) {
+      console.error('[Automation] resume download failed:', e?.message)
+      return null
     }
   }
 
