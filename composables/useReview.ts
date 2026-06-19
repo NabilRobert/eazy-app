@@ -1,24 +1,32 @@
 import type { ReviewItem } from '~/types/review'
 
 /**
- * Review-queue logic: load pending items, select one, confirm/skip. Owns its
- * own mount fetch so the page is presentational.
+ * Review-queue logic: load pending items, select one, capture answers to any
+ * flagged questions, and confirm/skip. Confirm sends the answers; the next
+ * automation run applies the job.
  */
 export function useReview() {
   const pendingJobs = ref<ReviewItem[]>([])
   const selectedJob = ref<ReviewItem | null>(null)
+  const answers = reactive<Record<string, string>>({})
 
   function selectJob(job: ReviewItem) {
     selectedJob.value = job
+    // Reset the answer inputs for the newly-selected item's questions.
+    for (const k of Object.keys(answers)) delete answers[k]
+    for (const q of job.questions || []) answers[q] = ''
   }
 
   async function resolve(action: 'confirm' | 'skip') {
     if (!selectedJob.value) return
     const id = selectedJob.value.id
+    const body = action === 'confirm' ? { action, answers: { ...answers } } : { action }
     try {
-      await $fetch(`/api/review/${id}`, { method: 'PATCH', body: { action } })
+      await $fetch(`/api/review/${id}`, { method: 'PATCH', body })
       pendingJobs.value = pendingJobs.value.filter((j) => j.id !== id)
-      selectedJob.value = pendingJobs.value[0] || null
+      const next = pendingJobs.value[0] || null
+      if (next) selectJob(next)
+      else selectedJob.value = null
     } catch (error) {
       console.error(`Failed to ${action} job:`, error)
     }
@@ -31,7 +39,8 @@ export function useReview() {
     try {
       const res = await $fetch<{ success: boolean; data: ReviewItem[] }>('/api/review')
       pendingJobs.value = res.data || []
-      selectedJob.value = pendingJobs.value[0] || null
+      if (pendingJobs.value[0]) selectJob(pendingJobs.value[0])
+      else selectedJob.value = null
     } catch (error) {
       console.error('Failed to fetch review queue:', error)
     }
@@ -39,5 +48,5 @@ export function useReview() {
 
   onMounted(fetchReview)
 
-  return { pendingJobs, selectedJob, selectJob, confirmJob, skipJob }
+  return { pendingJobs, selectedJob, answers, selectJob, confirmJob, skipJob }
 }

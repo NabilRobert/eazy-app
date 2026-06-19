@@ -150,6 +150,11 @@ export class AutomationService {
       const resumePath = await this.downloadResumeIfAny(profile)
       await this.heartbeat()
       const runDay = QuotaService.localDay(profile.timezone).getTime() // user-local day at run start
+
+      // Apply any review items the user confirmed since the last run (uses the
+      // saved answers + reserved confirmed slots), before auto-applying.
+      await this.applyConfirmedReviews(service, answers, resumePath)
+
       const jobs = await service.searchJobs({
         keywords: profile.desiredPosition,
         location: profile.preferredLocation || undefined,
@@ -338,6 +343,62 @@ export class AutomationService {
       create: { userId: this.userId, linkedinJobId: listing.linkedinJobId, ...data },
       update: data
     })
+  }
+
+  /**
+   * Apply review items the user confirmed (with their saved answers). Runs at
+   * the start of each automation cycle, using reserved confirmed-apply slots.
+   */
+  private async applyConfirmedReviews(
+    service: ReturnType<typeof createLinkedinService>,
+    baseAnswers: Record<string, string>,
+    resumePath: string | null
+  ): Promise<void> {
+    const confirmed = await prisma.reviewQueue.findMany({
+      where: { userId: this.userId, status: 'confirmed' },
+      include: { job: true }
+    })
+
+    for (const item of confirmed) {
+      if (await this.shouldStop()) break
+      const { totalSlots } = await QuotaService.getAvailableSlots(this.userId)
+      if (totalSlots <= 0) break
+
+      const job = item.job
+      if (!job?.jobUrl) continue
+
+      const detail = await service.scrapeJobDetail(job.jobUrl)
+      if (!detail) continue
+      if (!(await service.openApplyModal())) continue
+
+      // Merge profile answers + the user's saved answers; default relocation=Yes.
+      const itemAnswers: Record<string, string> = {
+        ...baseAnswers,
+        ...((item.answers as Record<string, string>) || {})
+      }
+      if (item.reason.includes('relocation') && !itemAnswers['willing to relocate']) {
+        itemAnswers['willing to relocate'] = 'Yes'
+      }
+
+      if (resumePath) await service.attachResume(resumePath)
+      const fill = await service.fillEasyApplyForm(itemAnswers)
+      if (fill.status !== 'ready_to_submit') {
+        await service.closeApplyModal()
+        continue
+      }
+      if (!(await service.submitEasyApply())) {
+        await service.closeApplyModal()
+        continue
+      }
+
+      await prisma.job.update({ where: { id: job.id }, data: { needsReview: false, status: 'applied' } })
+      await prisma.reviewQueue.update({
+        where: { id: item.id },
+        data: { status: 'applied', resolvedAt: new Date() }
+      })
+      await QuotaService.incrementConfirmedApplied(this.userId)
+      await service.randomDelay()
+    }
   }
 
   /**

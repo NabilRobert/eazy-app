@@ -54,17 +54,33 @@
               </p>
             </div>
 
+            <!-- Answer the flagged questions so Eazy can apply on the next run -->
+            <div v-if="selectedJob.questions && selectedJob.questions.length" class="mb-6 space-y-3">
+              <h3 class="text-sm font-semibold text-gray-700">Answer to apply</h3>
+              <div v-for="q in selectedJob.questions" :key="q">
+                <label class="block text-sm text-gray-700 mb-1">{{ q }}</label>
+                <input
+                  v-model="answers[q]"
+                  type="text"
+                  class="block w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Your answer"
+                />
+              </div>
+            </div>
+
             <div class="prose prose-sm max-w-none mb-6">
               <p v-if="selectedJob.description" class="text-gray-700">{{ selectedJob.description }}</p>
             </div>
 
+            <p class="text-xs text-gray-500 mb-3">
+              Confirming queues this job to be applied on the next automation run.
+            </p>
             <div class="flex gap-3">
               <button
                 @click="confirmJob"
                 class="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
               >
-                Confirm & Apply
-              </button>
+                Confirm
               <button
                 @click="skipJob"
                 class="flex-1 px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300"
@@ -84,5 +100,5 @@
 </template>
 
 <script setup lang="ts">
-const { pendingJobs, selectedJob, selectJob, confirmJob, skipJob } = useReview()
+const { pendingJobs, selectedJob, answers, selectJob, confirmJob, skipJob } = useReview()
 </script>

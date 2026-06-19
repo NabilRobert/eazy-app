@@ -19,6 +19,7 @@ export default defineEventHandler(async (event) => {
   const data = items.map((it) => ({
     id: it.id,
     reason: it.reason,
+    questions: Array.isArray(it.questions) ? (it.questions as string[]) : [],
     createdAt: it.createdAt,
     jobId: it.jobId,
     title: it.job?.title ?? '',

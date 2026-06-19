@@ -1,24 +1,20 @@
 import prisma from '~/server/utils/prisma'
 import { requireAuth } from '~/server/utils/auth'
-import { QuotaService } from '~/server/services/quota.service'
 import { validateBody } from '~/server/utils/validation'
 import { reviewActionSchema } from '~/server/utils/schemas'
 
 /**
  * PATCH /api/review/[id]
- * Body: { action: 'confirm' | 'skip' }.
+ * Body: { action: 'confirm' | 'skip', answers?: { [label]: value } }.
  * - skip:    mark the item skipped; the job will not be applied to.
- * - confirm: mark confirmed, reserve a confirmed-apply slot, clear the job's
- *            needsReview flag so it leaves the queue.
- *
- * NOTE: confirming records the user's intent and reserves the slot. The actual
- * Playwright re-apply for a confirmed job is a follow-up (needs a single-job
- * apply extracted from the worker) — see docs/brain.md / plan.
+ * - confirm: save the user's answers to the flagged questions and mark
+ *            confirmed. The NEXT automation run applies it using those answers
+ *            (using a reserved confirmed slot) — the worker performs the apply.
  */
 export default defineEventHandler(async (event) => {
   const user = await requireAuth(event)
   const id = getRouterParam(event, 'id')
-  const { action } = await validateBody(event, reviewActionSchema)
+  const { action, answers } = await validateBody(event, reviewActionSchema)
 
   const item = await prisma.reviewQueue.findFirst({ where: { id, userId: user.id } })
   if (!item) {
@@ -36,13 +32,10 @@ export default defineEventHandler(async (event) => {
     return { success: true, data: { status: 'skipped' } }
   }
 
-  // confirm
+  // confirm — store answers; the worker applies it on the next run.
   await prisma.reviewQueue.update({
     where: { id: item.id },
-    data: { status: 'confirmed', resolvedAt: new Date() }
+    data: { status: 'confirmed', answers: (answers ?? {}) as any }
   })
-  await prisma.job.update({ where: { id: item.jobId }, data: { needsReview: false } })
-  await QuotaService.incrementConfirmedApplied(user.id)
-
   return { success: true, data: { status: 'confirmed' } }
 })

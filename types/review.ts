@@ -2,6 +2,7 @@
 export interface ReviewItem {
   id: string
   reason: string
+  questions: string[]
   jobId?: string
   title: string
   company: string

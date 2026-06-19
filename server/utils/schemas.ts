@@ -27,7 +27,9 @@ export const jobStatusSchema = z.object({
 })
 
 export const reviewActionSchema = z.object({
-  action: z.enum(['confirm', 'skip'])
+  action: z.enum(['confirm', 'skip']),
+  // On confirm: answers to the flagged questions (label -> value), applied next run.
+  answers: z.record(z.string()).optional()
 })
 
 // --- AI ---
