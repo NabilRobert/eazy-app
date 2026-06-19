@@ -69,6 +69,10 @@ model CandidateProfile {
   automationStatus      String   @default("idle")   // 'idle' | 'running'
   automationHeartbeat   DateTime?                    // updated each loop tick; stale => worker dead
 
+  // Account safety / scheduling
+  timezone              String   @default("UTC")     // IANA tz for user-local quota reset
+  firstRunAt            DateTime?                     // first automation run; drives warm-up ramp
+
   updatedAt             DateTime @updatedAt
 
   @@map("candidate_profile")
@@ -129,7 +133,10 @@ model ReviewQueue {
   job               Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
   reason            String   // e.g. 'relocation_question' | 'custom_screening'
-  status            String   @default("pending") // 'pending' | 'confirmed' | 'skipped'
+  status            String   @default("pending") // 'pending' | 'confirmed' | 'skipped' | 'applied'
+
+  questions         Json     @default("[]")        // flagged custom question labels
+  answers           Json     @default("{}")        // user answers (label -> value), applied next run
 
   createdAt         DateTime @default(now())
   resolvedAt        DateTime?
