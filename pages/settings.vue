@@ -149,7 +149,7 @@
         </p>
 
         <template v-if="li.step === 'creds'">
-          <input v-model="li.email" type="email" placeholder="LinkedIn email" class="block w-full px-3 py-2 border border-gray-300 rounded-md" />
+          <input v-model="li.email" type="email" autofocus placeholder="LinkedIn email" class="block w-full px-3 py-2 border border-gray-300 rounded-md" />
           <input v-model="li.password" type="password" placeholder="LinkedIn password" class="block w-full px-3 py-2 border border-gray-300 rounded-md" />
           <button @click="submitCreds" :disabled="li.loading" class="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
             {{ li.loading ? 'Connecting…' : 'Connect' }}

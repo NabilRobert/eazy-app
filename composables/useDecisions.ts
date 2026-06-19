@@ -12,23 +12,50 @@ export function useDecisions() {
     { label: 'Skipped', value: 'skip' }
   ]
 
+  const PAGE = 50
   const decisions = ref<Decision[]>([])
   const selected = ref<Decision | null>(null)
   const activeFilter = ref('all')
   const loading = ref(true)
+  const loadingMore = ref(false)
+  const hasMore = ref(false)
+  const loadError = ref('')
+
+  function buildUrl(offset: number) {
+    const params = new URLSearchParams({ limit: String(PAGE), offset: String(offset) })
+    if (activeFilter.value !== 'all') params.set('decision', activeFilter.value)
+    return `/api/decisions?${params.toString()}`
+  }
 
   async function load() {
     loading.value = true
+    loadError.value = ''
     try {
-      const q = activeFilter.value === 'all' ? '' : `?decision=${activeFilter.value}`
-      const res = await $fetch<{ success: boolean; data: Decision[] }>(`/api/decisions${q}`)
+      const res = await $fetch<{ success: boolean; data: Decision[] }>(buildUrl(0))
       decisions.value = res.data || []
+      hasMore.value = decisions.value.length === PAGE
       selected.value = decisions.value[0] || null
     } catch (e) {
       console.error('Failed to load decisions:', e)
       decisions.value = []
+      loadError.value = 'Could not load decisions. Refresh to try again.'
     } finally {
       loading.value = false
+    }
+  }
+
+  async function loadMore() {
+    if (loadingMore.value || !hasMore.value) return
+    loadingMore.value = true
+    try {
+      const res = await $fetch<{ success: boolean; data: Decision[] }>(buildUrl(decisions.value.length))
+      const batch = res.data || []
+      decisions.value = [...decisions.value, ...batch]
+      hasMore.value = batch.length === PAGE
+    } catch (e) {
+      console.error('Failed to load more decisions:', e)
+    } finally {
+      loadingMore.value = false
     }
   }
 
@@ -70,7 +97,11 @@ export function useDecisions() {
     selected,
     activeFilter,
     loading,
+    loadingMore,
+    hasMore,
+    loadError,
     setFilter,
+    loadMore,
     criteriaOf,
     scorePct,
     borderClass,

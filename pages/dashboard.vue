@@ -30,6 +30,8 @@
         restrictions. Eazy paces applications and ramps up slowly to reduce risk, but use at your own discretion.
       </div>
 
+      <p v-if="loadError" class="rounded-lg bg-red-50 border border-red-200 p-3 mb-6 text-sm text-red-700">{{ loadError }}</p>
+
       <!-- Automation Control -->
       <div class="rounded-lg bg-white p-6 shadow mb-6">
         <div class="flex justify-between items-center">
@@ -145,6 +147,7 @@ const {
   searchQuery,
   filterStatus,
   error,
+  loadError,
   filteredJobs,
   jobs,
   startAutomation,

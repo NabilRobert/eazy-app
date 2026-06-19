@@ -63,6 +63,16 @@
                 <span class="text-xs text-gray-500 w-8 text-right">{{ scorePct(d.score) }}</span>
               </div>
             </div>
+
+            <p v-if="loadError" class="text-center py-3 text-sm text-red-600">{{ loadError }}</p>
+            <button
+              v-if="hasMore"
+              @click="loadMore"
+              :disabled="loadingMore"
+              class="w-full mt-1 py-2 text-sm text-gray-700 border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50"
+            >
+              {{ loadingMore ? 'Loading…' : 'Load more' }}
+            </button>
           </div>
         </div>
 
@@ -133,7 +143,11 @@ const {
   selected,
   activeFilter,
   loading,
+  loadingMore,
+  hasMore,
+  loadError,
   setFilter,
+  loadMore,
   criteriaOf,
   scorePct,
   borderClass,

@@ -19,6 +19,7 @@ export function useDashboard() {
   const searchQuery = ref('')
   const filterStatus = ref('')
   const error = ref('')
+  const loadError = ref('')
   let pollTimer: ReturnType<typeof setInterval> | null = null
 
   const filteredJobs = computed(() =>
@@ -36,8 +37,10 @@ export function useDashboard() {
     try {
       const res = await $fetch<{ success: boolean; data: JobCard[] }>('/api/jobs')
       jobs.value = res.data || []
+      loadError.value = ''
     } catch (e) {
       console.error('Failed to fetch jobs:', e)
+      loadError.value = 'Could not load your jobs. Check your connection and refresh.'
     }
   }
 
@@ -113,6 +116,7 @@ export function useDashboard() {
     searchQuery,
     filterStatus,
     error,
+    loadError,
     filteredJobs,
     startAutomation,
     stopAutomation,

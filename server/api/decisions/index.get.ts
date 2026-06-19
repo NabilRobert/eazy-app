@@ -15,12 +15,14 @@ export default defineEventHandler(async (event) => {
   if (q.decision === 'apply' || q.decision === 'review' || q.decision === 'skip') {
     where.decision = q.decision
   }
-  const limit = Math.min(Number(q.limit) || 100, 500)
+  const limit = Math.min(Number(q.limit) || 50, 200)
+  const offset = Math.max(0, Number(q.offset) || 0)
 
   const decisions = await prisma.decisionLog.findMany({
     where,
     orderBy: { createdAt: 'desc' },
-    take: limit
+    take: limit,
+    skip: offset
   })
 
   return { success: true, data: decisions }

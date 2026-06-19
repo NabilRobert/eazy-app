@@ -106,6 +106,13 @@ export function useSettings() {
     Object.assign(li, { open: true, step: 'creds', password: '', code: '', error: '' })
   }
 
+  // Close the modal on Escape.
+  function onKey(e: KeyboardEvent) {
+    if (e.key === 'Escape' && li.open) li.open = false
+  }
+  onMounted(() => window.addEventListener('keydown', onKey))
+  onUnmounted(() => window.removeEventListener('keydown', onKey))
+
   async function submitCreds() {
     li.loading = true
     li.error = ''
