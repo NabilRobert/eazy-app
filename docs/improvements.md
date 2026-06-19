@@ -10,38 +10,39 @@ this is the queue, ordered roughly by priority. Check items off as they ship.
       Add: human-like variable pacing (time-of-day aware), warm-up ramping
       (don't hit 30 on day one), randomized scroll/mouse behavior, and an
       explicit user warning. No code fully removes this risk.
-- [ ] **Resume not attached (functional blocker).** Many Easy Apply forms
-      require a resume; the worker never uploads one. Build `/api/profile/resume`
-      → Supabase bucket, then download `resume_url` and `setInputFiles()` in the
-      fill step. Without this, real applies fail at submit.
+- [x] **Resume attached.** `/api/profile/resume` → auto-created Supabase
+      `resumes` bucket; worker downloads it per run and `setInputFiles()` on the
+      apply path; settings UI upload field. (commit ffb7571)
 
 ## P1 — Reliability & architecture
 
 - [ ] **Worker is fire-and-forget in a server route.** On serverless it's reaped
       after the response. Run the loop on a persistent host (VPS/Railway/Render/Fly).
-- [ ] **In-memory state is process-local.** `runningWorkers` and the LinkedIn
-      session store break across instances / restarts and can leak Steel
-      sessions (browser-hour cost). Persist run state + handshake in the DB.
-- [ ] **No crash recovery.** If the process dies mid-run, partial state is lost
-      and the Steel session leaks. Add a heartbeat + cleanup.
+- [x] **Worker run-state moved to DB.** `runningWorkers` map replaced by
+      `candidate_profile.automationStatus` + `automationHeartbeat`; `/status`
+      derives running from a fresh (<30s) heartbeat, so it's correct across
+      restarts/instances and a crashed worker reads as not-running. (commit
+      d19fb3c) — NOTE: the LinkedIn auth handshake store is still process-local
+      (holds a live Playwright connection between two requests); reconnect-via-
+      CDP is the eventual fix.
 
 ## P1 — Security
 
-- [ ] **No CSRF protection.** Cookie-authed state-changing routes (e.g.
-      `/api/automation/start`) are CSRF-able. Add CSRF tokens or strict origin
-      checks; confirm session cookie `SameSite`.
-- [ ] **No rate limiting on `/api/auth/login`** (brute force). Add per-IP limits.
+- [x] **CSRF protection added.** `server/middleware/security.ts` rejects
+      mutating requests whose Origin host != request host. (commit 1a870ad)
+- [x] **Auth rate limiting added.** `server/utils/rate-limit.ts`; login 10/min,
+      register 5/min per IP. (commit 1a870ad) — in-memory; Redis for multi-instance.
 - [ ] **`zod` is a dependency but unused.** Validate all request bodies with zod
       schemas instead of ad-hoc checks.
 
 ## P2 — Cost & efficiency (AI/LinkedIn calls)
 
-- [ ] **Company research runs before the skip decision.** `getCompanySummary`
-      (Tavily + LLM) fires for every job, even ones we immediately skip. Move it
-      into the apply/review path only.
-- [ ] **Skipped jobs aren't recorded as "seen".** They get re-opened and
-      re-evaluated every run (repeated cost + LinkedIn activity). Dedupe skips
-      via `decision_log` by `linkedinJobId` (or a seen-set).
+- [x] **Company research no longer runs before the decision.** Evaluator
+      decides from the posting alone; company summary only for applied jobs
+      (enrich). (commit debbcf1)
+- [x] **Skipped jobs deduped.** `alreadyProcessed()` skips jobs with a prior
+      'skip' in `decision_log`, so they aren't re-opened/re-evaluated. (commit
+      debbcf1)
 - [ ] **Modal opened before the skip decision.** Scrape job detail without
       opening Easy Apply, evaluate, then open the modal only when the verdict is
       apply (cheaper + less bot-detectable).
