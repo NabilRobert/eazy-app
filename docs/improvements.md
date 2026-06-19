@@ -5,19 +5,18 @@ this is the queue, ordered roughly by priority. Check items off as they ship.
 
 ## P0 — Risk & blockers
 
-- [ ] **LinkedIn account / ToS risk (product).** Automating Easy Apply can get
-      accounts restricted. Current defenses: 3–8s random delay + 30/day cap.
-      Add: human-like variable pacing (time-of-day aware), warm-up ramping
-      (don't hit 30 on day one), randomized scroll/mouse behavior, and an
-      explicit user warning. No code fully removes this risk.
+- [x] **Account-safety pacing added** (risk reduced, not eliminated). Warm-up
+      ramp (10 day 1 → +5/day → 30), variable delays with occasional long
+      pauses, and a ToS warning banner on the dashboard. (commit 8632424)
 - [x] **Resume attached.** `/api/profile/resume` → auto-created Supabase
       `resumes` bucket; worker downloads it per run and `setInputFiles()` on the
       apply path; settings UI upload field. (commit ffb7571)
 
 ## P1 — Reliability & architecture
 
-- [ ] **Worker is fire-and-forget in a server route.** On serverless it's reaped
-      after the response. Run the loop on a persistent host (VPS/Railway/Render/Fly).
+- [x] **Persistent-host deployment documented.** `docs/deploy.md` — run the
+      whole app (worker in-process) on Railway/Render/Fly/VPS; example render.yaml
+      + the split-deploy caveat. (No browser binary needed — Steel is remote.)
 - [x] **Worker run-state moved to DB.** `runningWorkers` map replaced by
       `candidate_profile.automationStatus` + `automationHeartbeat`; `/status`
       derives running from a fresh (<30s) heartbeat, so it's correct across
@@ -44,36 +43,38 @@ this is the queue, ordered roughly by priority. Check items off as they ship.
 - [x] **Skipped jobs deduped.** `alreadyProcessed()` skips jobs with a prior
       'skip' in `decision_log`, so they aren't re-opened/re-evaluated. (commit
       debbcf1)
-- [ ] **Modal opened before the skip decision.** Scrape job detail without
-      opening Easy Apply, evaluate, then open the modal only when the verdict is
-      apply (cheaper + less bot-detectable).
+- [x] **Evaluate before opening the modal.** `scrapeJobDetail()` +
+      `openApplyModal()` split; worker evaluates first, opens the form only on
+      'apply'. (commit f03a151)
 
 ## P2 — Correctness & edge cases
 
-- [ ] **Timezone:** quota resets on server local time, not the user's local
-      midnight (plan requires user-local). Store/compute per user timezone.
-- [ ] **Reserved-slot quota nuance unimplemented.** The "10 confirmed slots that
-      expand when none are pending" logic isn't wired — worker only checks
-      `total >= 30`.
-- [ ] **Review "confirm" doesn't re-apply.** It records intent + reserves a slot
-      but never actually applies. Extract a single-job apply from the worker.
-- [ ] Custom/relocation screening answers aren't captured at confirm time (V2).
+- [x] **Timezone-correct reset.** `QuotaService.localDay(tz)` resets at the
+      user's local midnight; `candidate_profile.timezone`. (commit 6a73288)
+- [x] **Reserved-slot quota implemented.** Auto-apply caps at 20 while confirmed
+      items pend (10 reserved), expands to 30 otherwise. (commit 6a73288)
+- [x] **Review "confirm" re-applies.** Confirm captures answers; the worker
+      applies confirmed items next run using reserved slots. (commit 940853e)
+- [x] **Screening answers captured at confirm time.** Review UI shows an answer
+      box per flagged question; saved + applied next run. (commit 940853e)
 
 ## P3 — Type safety & testing
 
-- [ ] **`typeCheck: false`** in nuxt.config and **~33 `: any`** in the server
-      (e.g. `profile: any`, `job: any` in the evaluator). Use Prisma-generated
-      types; enable `vue-tsc`/typeCheck in CI.
-- [ ] **No committed automated tests / no CI.** Add unit tests for the pure
-      logic (screening, password, salary parse, quota math) and a CI workflow
-      (typecheck + tests + build).
+- [x] **Type-check tooling + CI.** `npm run typecheck` (nuxt typecheck/vue-tsc)
+      and a CI workflow run it on every push. (commit d39b44c) Some `: any`
+      remain (mostly `err: any` + worker `profile: any`); the typecheck run will
+      guide further tightening.
+- [x] **Tests + CI added.** vitest unit tests (screening + password, 9 green)
+      and `.github/workflows/ci.yml` (install → generate → typecheck → test →
+      build). (commit d39b44c)
 
 ## P3 — UX polish
 
-- [ ] Fetch errors are swallowed to `console.error` with no user-facing state.
-- [ ] LinkedIn modal lacks focus trap / Escape handling.
-- [ ] Dashboard "running" status is process-local — can be wrong after reload.
-- [ ] Jobs/decisions lists aren't paginated (fixed `take` limits).
+- [x] Fetch-error banners on dashboard + decisions. (commit aad7874)
+- [x] LinkedIn modal: Escape closes + autofocus. (commit aad7874)
+- [x] Dashboard "running" status is now DB-backed (fixed by #3, commit d19fb3c).
+- [x] Decisions list paginated ('Load more'). Jobs list keeps its 200 cap
+      (live-polling model makes append-pagination awkward). (commit aad7874)
 
 ## Suggested first sweep
 
