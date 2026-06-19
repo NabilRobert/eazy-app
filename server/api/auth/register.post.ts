@@ -1,6 +1,8 @@
 import prisma from '~/server/utils/prisma'
 import { hashPassword } from '~/server/utils/password'
 import { rateLimit } from '~/server/utils/rate-limit'
+import { validateBody } from '~/server/utils/validation'
+import { registerSchema } from '~/server/utils/schemas'
 
 /**
  * POST /api/auth/register
@@ -11,15 +13,7 @@ export default defineEventHandler(async (event) => {
   const ip = getRequestIP(event, { xForwardedFor: true }) || 'unknown'
   rateLimit(`register:${ip}`, 5, 60_000) // 5 sign-ups / minute / IP
 
-  const { email, password } = await readBody<{ email?: string; password?: string }>(event)
-
-  if (!email || !password) {
-    throw createError({ statusCode: 400, statusMessage: 'Email and password are required' })
-  }
-  if (password.length < 8) {
-    throw createError({ statusCode: 400, statusMessage: 'Password must be at least 8 characters' })
-  }
-
+  const { email, password } = await validateBody(event, registerSchema)
   const normalizedEmail = email.trim().toLowerCase()
   const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } })
   if (existing) {

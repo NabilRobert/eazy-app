@@ -2,7 +2,9 @@ import prisma from '~/server/utils/prisma'
 import { requireAuth } from '~/server/utils/auth'
 import { encryptSessionCookie } from '~/server/utils/encrypt'
 import { getPendingAuth, clearPendingAuth } from '~/server/utils/linkedin-session-store'
-import type { LinkedinAuthVerifyRequest, LinkedinAuthResponse } from '~/types/automation'
+import { validateBody } from '~/server/utils/validation'
+import { verifyCodeSchema } from '~/server/utils/schemas'
+import type { LinkedinAuthResponse } from '~/types/automation'
 
 /**
  * POST /api/automation/linkedin-auth/verify
@@ -12,11 +14,7 @@ import type { LinkedinAuthVerifyRequest, LinkedinAuthResponse } from '~/types/au
  */
 export default defineEventHandler(async (event): Promise<LinkedinAuthResponse> => {
   const user = await requireAuth(event)
-  const { code } = await readBody<LinkedinAuthVerifyRequest>(event)
-
-  if (!code) {
-    throw createError({ statusCode: 400, statusMessage: 'Verification code is required' })
-  }
+  const { code } = await validateBody(event, verifyCodeSchema)
 
   const service = getPendingAuth(user.id)
   if (!service) {

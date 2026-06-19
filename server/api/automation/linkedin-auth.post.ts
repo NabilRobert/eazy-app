@@ -3,7 +3,9 @@ import { requireAuth } from '~/server/utils/auth'
 import { encryptSessionCookie } from '~/server/utils/encrypt'
 import { createLinkedinService } from '~/server/services/linkedin.service'
 import { setPendingAuth, clearPendingAuth } from '~/server/utils/linkedin-session-store'
-import type { LinkedinAuthRequest, LinkedinAuthResponse } from '~/types/automation'
+import { validateBody } from '~/server/utils/validation'
+import { linkedinAuthSchema } from '~/server/utils/schemas'
+import type { LinkedinAuthResponse } from '~/types/automation'
 
 /**
  * POST /api/automation/linkedin-auth
@@ -14,11 +16,7 @@ import type { LinkedinAuthRequest, LinkedinAuthResponse } from '~/types/automati
  */
 export default defineEventHandler(async (event): Promise<LinkedinAuthResponse> => {
   const user = await requireAuth(event)
-  const { email, password } = await readBody<LinkedinAuthRequest>(event)
-
-  if (!email || !password) {
-    throw createError({ statusCode: 400, statusMessage: 'LinkedIn email and password are required' })
-  }
+  const { email, password } = await validateBody(event, linkedinAuthSchema)
 
   const config = useRuntimeConfig()
   if (!config.steel_api_key) {

@@ -1,6 +1,8 @@
 import prisma from '~/server/utils/prisma'
 import { requireAuth } from '~/server/utils/auth'
 import { QuotaService } from '~/server/services/quota.service'
+import { validateBody } from '~/server/utils/validation'
+import { reviewActionSchema } from '~/server/utils/schemas'
 
 /**
  * PATCH /api/review/[id]
@@ -16,11 +18,7 @@ import { QuotaService } from '~/server/services/quota.service'
 export default defineEventHandler(async (event) => {
   const user = await requireAuth(event)
   const id = getRouterParam(event, 'id')
-  const { action } = await readBody<{ action?: string }>(event)
-
-  if (action !== 'confirm' && action !== 'skip') {
-    throw createError({ statusCode: 400, statusMessage: "action must be 'confirm' or 'skip'" })
-  }
+  const { action } = await validateBody(event, reviewActionSchema)
 
   const item = await prisma.reviewQueue.findFirst({ where: { id, userId: user.id } })
   if (!item) {

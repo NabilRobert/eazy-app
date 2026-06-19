@@ -1,7 +1,7 @@
 import prisma from '~/server/utils/prisma'
 import { requireAuth } from '~/server/utils/auth'
-
-const STATUSES = ['applied', 'interview', 'offer', 'rejected', 'withdrawn']
+import { validateBody } from '~/server/utils/validation'
+import { jobStatusSchema } from '~/server/utils/schemas'
 
 /**
  * PATCH /api/jobs/[id]
@@ -10,11 +10,7 @@ const STATUSES = ['applied', 'interview', 'offer', 'rejected', 'withdrawn']
 export default defineEventHandler(async (event) => {
   const user = await requireAuth(event)
   const id = getRouterParam(event, 'id')
-  const { status } = await readBody<{ status?: string }>(event)
-
-  if (!status || !STATUSES.includes(status)) {
-    throw createError({ statusCode: 400, statusMessage: `status must be one of: ${STATUSES.join(', ')}` })
-  }
+  const { status } = await validateBody(event, jobStatusSchema)
 
   // Scope the update to the owner.
   const existing = await prisma.job.findFirst({ where: { id, userId: user.id } })

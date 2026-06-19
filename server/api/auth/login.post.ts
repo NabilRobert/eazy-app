@@ -1,6 +1,8 @@
 import prisma from '~/server/utils/prisma'
 import { verifyPassword } from '~/server/utils/password'
 import { rateLimit } from '~/server/utils/rate-limit'
+import { validateBody } from '~/server/utils/validation'
+import { loginSchema } from '~/server/utils/schemas'
 
 /**
  * POST /api/auth/login
@@ -10,11 +12,7 @@ export default defineEventHandler(async (event) => {
   const ip = getRequestIP(event, { xForwardedFor: true }) || 'unknown'
   rateLimit(`login:${ip}`, 10, 60_000) // 10 attempts / minute / IP
 
-  const { email, password } = await readBody<{ email?: string; password?: string }>(event)
-
-  if (!email || !password) {
-    throw createError({ statusCode: 400, statusMessage: 'Email and password are required' })
-  }
+  const { email, password } = await validateBody(event, loginSchema)
 
   const user = await prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } })
   // Same error for missing user vs bad password (avoid leaking which emails exist).

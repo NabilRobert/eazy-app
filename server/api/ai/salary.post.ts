@@ -1,5 +1,7 @@
 import { requireAuth } from '~/server/utils/auth'
 import { AIService } from '~/server/services/ai.service'
+import { validateBody } from '~/server/utils/validation'
+import { aiSalarySchema } from '~/server/utils/schemas'
 
 /**
  * POST /api/ai/salary
@@ -8,11 +10,7 @@ import { AIService } from '~/server/services/ai.service'
  */
 export default defineEventHandler(async (event) => {
   await requireAuth(event)
-  const { description } = await readBody<{ description?: string }>(event)
-
-  if (!description) {
-    throw createError({ statusCode: 400, statusMessage: 'description is required' })
-  }
+  const { description } = await validateBody(event, aiSalarySchema)
 
   const salary = await AIService.parseSalary(description)
   return { success: true, data: salary }
