@@ -23,10 +23,11 @@ export default defineNuxtConfig({
     supabase_url: process.env.SUPABASE_URL,
     supabase_service_key: process.env.SUPABASE_SERVICE_KEY,
     encrypt_secret: process.env.ENCRYPT_SECRET,
-    nuxt_session_secret: process.env.NUXT_SESSION_SECRET,
-    // nuxt-auth-utils reads the sealed-session password from here
+    // nuxt-auth-utils reads process.env.NUXT_SESSION_PASSWORD first; this
+    // runtimeConfig.session.password is a fallback so it also works if only
+    // NUXT_SESSION_SECRET is set (defu skips the undefined env value).
     session: {
-      password: process.env.NUXT_SESSION_SECRET || ''
+      password: process.env.NUXT_SESSION_PASSWORD || process.env.NUXT_SESSION_SECRET || ''
     },
     // Public keys (client-visible)
     public: {
