@@ -654,6 +654,8 @@ export class LinkedinService {
           .first()
         if (!(await nextBtn.count())) break
 
+        await this.humanScroll()
+        await this.humanPause(500, 1500) // "read" the step before advancing
         await nextBtn.click({ timeout: 10000 }).catch(() => {})
         await page.waitForTimeout(900)
         stepsAdvanced++
@@ -722,7 +724,7 @@ export class LinkedinService {
       // Textarea.
       const textarea = group.locator('textarea')
       if (await textarea.count()) {
-        if (value) await textarea.fill(value).catch(() => missed.push(label))
+        if (value) await this.humanType(textarea.first(), value).catch(() => missed.push(label))
         else missed.push(label)
         continue
       }
@@ -730,13 +732,46 @@ export class LinkedinService {
       // Plain text/email/tel input.
       const input = group.locator('input[type="text"], input[type="email"], input[type="tel"], input:not([type])')
       if (await input.count()) {
-        if (value) await input.first().fill(value).catch(() => missed.push(label))
+        if (value) await this.humanType(input.first(), value).catch(() => missed.push(label))
         else missed.push(label)
         continue
       }
     }
 
     return missed
+  }
+
+  /**
+   * Type a value with human-like per-keystroke timing. Falls back to fill()
+   * if anything goes wrong, so behaviour never regresses from a plain fill.
+   */
+  private async humanType(locator: ReturnType<Page['locator']>, value: string): Promise<void> {
+    await locator.click({ timeout: 5000 }).catch(() => {})
+    await locator.fill('').catch(() => {})
+    try {
+      await locator.pressSequentially(value, { delay: 40 + Math.floor(Math.random() * 90) })
+    } catch {
+      // Older Playwright or odd field — fall back to an instant fill.
+      await locator.fill(value)
+    }
+  }
+
+  /** Short randomized "think" pause (best-effort, never throws). */
+  private async humanPause(min = 500, max = 1600): Promise<void> {
+    try {
+      await this.page?.waitForTimeout(min + Math.floor(Math.random() * (max - min)))
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** Light scroll to mimic a human reading the form (best-effort). */
+  private async humanScroll(): Promise<void> {
+    try {
+      await this.page?.mouse.wheel(0, 120 + Math.floor(Math.random() * 360))
+    } catch {
+      /* ignore */
+    }
   }
 
   /**
@@ -790,6 +825,8 @@ export class LinkedinService {
         return false
       }
 
+      await this.humanScroll()
+      await this.humanPause(700, 1800) // brief pause before final submit
       await submitBtn.click({ timeout: 10000 })
       await page.waitForTimeout(2000)
 
