@@ -28,7 +28,7 @@
             </div>
             <div>
               <label class="block text-sm font-medium text-gray-700">Location</label>
-              <input v-model="profile.location" type="text" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500" />
+              <LocationInput v-model="profile.location" placeholder="Start typing your city…" />
             </div>
             <div>
               <label class="block text-sm font-medium text-gray-700">Years of Experience</label>
@@ -72,7 +72,7 @@
             </div>
             <div>
               <label class="block text-sm font-medium text-gray-700">Preferred Location</label>
-              <input v-model="targeting.preferredLocation" type="text" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500" />
+              <LocationInput v-model="targeting.preferredLocation" placeholder="Where do you want to work?" />
             </div>
             <div>
               <label class="block text-sm font-medium text-gray-700">Employment Type</label>
